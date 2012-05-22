@@ -1,0 +1,112 @@
+<!-- daemon configuration -->
+<daemon>
+  <!-- The process ID file. Comment this out if you don't need to know
+       the process ID from outside the process (eg for control scripts) -->
+  <pidfile>@localstatedir@/@package@/pid/xmppd.pid</pidfile>
+
+  <!-- Log configuration - type is "syslog", "file" or "stdout" -->
+  <log type='syslog'>
+    <!-- If logging to syslog, this is the log ident -->
+    <ident>jabberd/xmppd</ident>
+
+    <!-- If logging to syslog, this is the log facility
+         (local0 - local7)                        [default: local3] -->
+    <facility>local3</facility>
+
+    <!-- If logging to file, this is the filename of the logfile -->
+    <!--
+    <file>@localstatedir@/@package@/log/xmppd.log</file>
+    -->
+
+    <!-- Filename of the debug logfile -->
+    <!--
+    <debug>@localstatedir@/@package@/log/debug.log</debug>
+    -->
+  </log>
+
+  <!-- input/output settings -->
+  <io>
+    <!-- Maximum number of file descriptors. This value sets an upper
+         limit on the number of users and components connected.
+
+         Note that the number of possible connections will be slightly
+         less than this, because daemon itself can use few on its own,
+         and auth/reg modules may need a few also. If the supply of
+         file descriptors is exhausted, new incoming connections will
+         be denied.
+
+         Also note that this value only affects how many file descriptors
+         jabberd is able to handle internally. You may also need to
+         tell your operating system to allow jabberd to use more file
+         descriptors. On Linux this can be done using ulimit -n or by
+         changing the value of /proc/sys/fd/file-max.
+
+         (default: 1024) -->
+    <max_fds>1024</max_fds>
+  </io>
+
+  <!-- Name aliases.
+
+       Packets destined for the domain specified in the "name" attribute
+       will be routed to the component that has currently bound the name
+       in the "target" attribute (assuming it is online).
+
+       This is usually only required for some kinds of legacy
+       components (particularly jabberd 1.4 "uplink" components) -->
+  <aliases>
+    <!-- Example for a MUC component running from a jabberd 1.4 uplink -->
+    <!--
+    <alias name='conference.domain.com' target='muclinker'/>
+    -->
+  </aliases>
+
+  <!-- Access control information -->
+  <aci>
+    <!-- The usernames listed here will get access to all restricted
+         functions, regardless of restrictions further down -->
+    <acl type='all'>
+      <user>jabberd</user>
+    </acl>
+
+    <!-- These users can bind names other than their username -->
+    <!--
+    <acl type='bind'>
+    </acl>
+    -->
+
+    <!-- These users can bind a name as a default route -->
+    <!--
+    <acl type='default-route'>
+      <user>s2s</user>
+    </acl>
+    -->
+
+    <!-- These users can elect to receive all packets that pass through the router -->
+    <!--
+    <acl type='log'>
+      <user>msglog</user>
+    </acl>
+    -->
+
+    <!-- File containing packet filter rules.
+         May be used for fine grained packet routing control. -->
+    <filter>@sysconfdir@/router-filter.xml</filter>
+
+  </aci>
+
+  <!-- Modules configuration
+
+       Modules listed are loaded in the order specified to register
+       package processors for domain names. -->
+  <modules>
+    <!-- dynamic modules path -->
+    <path>@pkglibdir@</path>
+
+    <module>msg-logger</module>       <!-- simple file message logger -->
+    <module>linker</module>           <!-- opens port for remote components -->
+  </modules>
+
+</daemon>
+<!--
+  vim: syntax=xml
+-->

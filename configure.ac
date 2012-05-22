@@ -946,6 +946,7 @@ AC_CONFIG_FILES([Doxyfile
                  util/Makefile
                  mio/Makefile
                  sx/Makefile
+                 daemon/Makefile
                  storage/Makefile
                  c2s/Makefile
                  router/Makefile
