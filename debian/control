@@ -1,0 +1,15 @@
+Source: jabberd2
+Section: net
+Priority: extra
+Maintainer: John Fox Woland <fox@kassy.ru>
+Build-Depends: debhelper (>= 8.0.0), autotools-dev, libexpat1-dev, libidn11-dev, libgsasl7-dev, libssl-dev, libldap2-dev, libpq-dev, libudns-dev
+Standards-Version: 3.9.3
+Homepage: http://jabberd2.org
+#Vcs-Git: git://git.debian.org/collab-maint/jabberd2.git
+#Vcs-Browser: http://git.debian.org/?p=collab-maint/jabberd2.git;a=summary
+
+Package: jabberd2
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: jabberd2 jabber server.
+ <insert long description, indented with spaces>

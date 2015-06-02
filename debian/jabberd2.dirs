@@ -1,0 +1,4 @@
+usr/share/jabberd2/contrib
+var/lib/jabberd2/stats
+var/log/jabberd2/debug
+var/run/jabberd2

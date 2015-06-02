@@ -1,0 +1,43 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+#
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+#
+# Modified to make a template file for a multi-binary package with separated
+# build-arch and build-indep targets  by Bill Allombert 2001
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+
+%:
+	dh $@  --with autotools-dev
+
+install:
+	$(MAKE) DESTDIR=$$(pwd)/debian/jabberd2 install
+
+# 'CFLAGS=-O0' before dh_auto_configure for debugging
+override_dh_auto_configure:
+	dh_auto_configure -- --prefix=/usr --sysconfdir=/etc --localstatedir=/var --program-transform-name='s/jabberd/jabberd2/' --enable-ssl --enable-pgsql=$$(pg_config --includedir) --enable-ldap
+#	--enable-pam --enable-pipe --enable-anon
+#	--enable-debug
+#	--enable-developer
+#	--enable-nad-debug --enable-pool-debug --enable-mio-debug
+
+override_dh_auto_install: install
+	cp $$(pwd)/tools/bdb* \
+		$$(pwd)/tools/db-* \
+		$$(pwd)/tools/jabberd2.schema \
+		$$(pwd)/tools/jabberd-authpipe-pam-0.1.pl \
+		$$(pwd)/tools/migrate-jd14dir-2-sqlite.pl \
+		$$(pwd)/tools/migrate.pl \
+		$$(pwd)/tools/pam_jabberd \
+		$$(pwd)/tools/pipe-auth.pl \
+		$$(pwd)/debian/jabberd2/usr/share/jabberd2/contrib

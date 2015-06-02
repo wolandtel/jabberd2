@@ -1,0 +1,5 @@
+jabberd2 (2.3.3-1) stable; urgency=low
+
+  * Build package from git
+
+ -- John Fox Woland <fox@kassy.ru>  Fri, 29 May 2015 15:29:17 +0500
