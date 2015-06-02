@@ -1,0 +1,100 @@
+#! /bin/sh
+#
+### BEGIN INIT INFO
+# Provides:          @package@
+# Default-Start:     2 3 4 5
+# Default-Stop:      1
+# Short-Description: @package@
+# Required-Start:  	 $syslog $time $networking
+# Required-Stop:     $syslog $time $networking
+# Description:       @package@
+
+### END INIT INFO
+
+# PATH should only include /usr/* if it runs after the mountnfs.sh script
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+DESC=@package@
+NAME=@package@
+DAEMON=@bindir@/@package@
+BASENAME=perl
+DAEMON_ARGS=
+PIDFILE=@localstatedir@/run/@package@/$NAME.pid
+SCRIPTNAME=@sysvinitdir@/$NAME
+USER=jabber
+
+# Exit if the package is not installed
+[ -x "$DAEMON" ] || exit 5
+
+# Load the VERBOSE setting and other rcS variables
+. /lib/init/vars.sh
+
+# Define LSB log_* functions.
+# Depend on lsb-base (>= 3.0-6) to ensure that this file is present.
+. /lib/lsb/init-functions
+
+#
+# Function that starts the daemon/service
+#
+do_start()
+{
+	start-stop-daemon --start --oknodo --quiet --background --make-pidfile --pidfile $PIDFILE --exec $DAEMON --chuid $USER \
+		$DAEMON_ARGS || return 1
+}
+
+#
+# Function that stops the daemon/service
+#
+do_stop()
+{
+	start-stop-daemon --stop --oknodo --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE --name $BASENAME -u $USER
+	RETVAL="$?"
+
+	rm -f $PIDFILE
+
+	return $RETVAL
+	return "$RETVAL"
+}
+
+#
+# Function that sends a SIGHUP to the daemon/service
+#
+do_reload() {
+	start-stop-daemon --stop --signal 1 --quiet --pidfile $PIDFILE --name $BASENAME
+	return 0
+}
+
+case "$1" in
+  start)
+	[ "$VERBOSE" != no ] && log_daemon_msg "Starting $DESC" "$NAME"
+	do_start
+    log_end_msg $?
+	;;
+  stop)
+	[ "$VERBOSE" != no ] && log_daemon_msg "Stopping $DESC" "$NAME"
+	do_stop
+    log_end_msg $?
+	;;
+  reload|force-reload)
+	[ "$VERBOSE" != no ] && log_daemon_msg "Reloading $DESC" "$NAME"
+	do_reload
+	log_end_msg $?
+	;;
+  restart)
+	[ "$VERBOSE" != no ] && log_daemon_msg "Restarting $DESC" "$NAME"
+	do_stop
+	case "$?" in
+	  0)
+		do_start
+        log_end_msg "$?"
+		;;
+	  *)
+	  	# Failed to stop
+		log_end_msg 1
+		;;
+	esac
+	;;
+  *)
+	echo "Usage: $SCRIPTNAME {start|stop|restart|reload|force-reload}" >&2
+	exit 3
+	;;
+esac

@@ -40,7 +40,7 @@ sm_SOURCES = aci.c \
              sm.c \
              user.c
 
-sm_CPPFLAGS = -DCONFIG_DIR=\"$(sysconfdir)\" -DLIBRARY_DIR=\"$(pkglibdir)\" -I@top_srcdir@
+sm_CPPFLAGS = -DCONFIG_DIR=\"$(sysconfdir)/$(PACKAGE)\" -DLIBRARY_DIR=\"$(pkglibdir)\" -I@top_srcdir@
 sm_LDFLAGS = -export-dynamic
 sm_LDADD = $(top_builddir)/sx/libsx.la \
            $(top_builddir)/mio/libmio.la \

@@ -105,7 +105,7 @@ ldapvcard_entry_st ldapvcard_entry[] =
     {NULL,NULL,0}
 };
 
-static int processregex(char *src, const char *regex, int patterngroups, int wantedgroup, char *dest, size_t dest_size, st_driver_t drv) {
+static int processregex(char *src, const char *regex, int patterngroups, int wantedgroup, char **dest, st_driver_t drv) {
   regex_t preg;
   regmatch_t pmatch[patterngroups];
   //log_debug(ZONE,"processregex: src='%s' regex='%s'", src, regex);
@@ -118,9 +118,14 @@ static int processregex(char *src, const char *regex, int patterngroups, int wan
 	return -2;
   }
   regfree(&preg);
-  int len = pmatch[wantedgroup].rm_eo-pmatch[wantedgroup].rm_so>dest_size?dest_size:pmatch[wantedgroup].rm_eo-pmatch[wantedgroup].rm_so;
-  memcpy(dest, src+pmatch[wantedgroup].rm_so, len);
-  dest[len<dest_size?len:dest_size]='\0';
+  int len = pmatch[wantedgroup].rm_eo - pmatch[wantedgroup].rm_so;
+  
+  *dest = malloc(sizeof(char) * len + 1);
+  if (!*dest)
+  	return -3;
+  
+  memcpy(*dest, src + pmatch[wantedgroup].rm_so, len);
+  *dest[len] = 0;
   //log_debug(ZONE,"processregex: dest='%s'", dest);
   return 0;
 }
@@ -271,9 +276,10 @@ static st_ret_t _st_ldapvcard_get(st_driver_t drv, const char *type, const char 
     const char *attrs_prg[] = { data->groupnameattr, NULL };
     LDAPMessage *result, *entry;
     ldapvcard_entry_st le;
-    int i,ival;
+    int i, ival;
     int tried = 0;
-    char jid[2048], group[1024], name[2048]; // name is sn[1024] + ' ' + initials[1024]
+	int gcount;
+    char jid[2048], **groups, group[2048], name[2048]; // name is sn[1024] + ' ' + initials[1024]
 
     if( _st_ldapvcard_connect_bind(drv) ) {
         return st_FAILED;
@@ -428,20 +434,36 @@ retry_pubrost:
 
             do {
                 vals = (char **)ldap_get_values(data->ld,entry,data->groupattr);
-                if( ldap_count_values(vals) <= 0 ) {
+                if( (gcount = ldap_count_values(vals)) <= 0 ) {
                     ldap_value_free(vals);
                     continue;
                 }
-                if (data->groupattr_regex == NULL || processregex(vals[0],data->groupattr_regex,2,1,group,sizeof(group),drv) !=0) {
-                    // if there is no regex defined or processing the regex failed - take value as is
-                    strncpy(group,vals[0],sizeof(group)-1);
-                }
-                group[sizeof(group)-1]='\0';
+				
+				groups = malloc(sizeof(char *) * gcount);
+				
+				if (!groups)
+				{
+					ldap_value_free(vals);
+					continue;
+				}
+				
+				memset(groups, 0, sizeof(char *) * gcount);
+				
+				for (i = 0; i < gcount; i++)
+				{
+	                if (data->groupattr_regex == NULL || (processregex(vals[i], data->groupattr_regex, 2, 1, &groups[i], drv) != 0))
+    	                // if there is no regex defined or processing the regex failed - take value as is
+						groups[i] = strdup(vals[i]);
+				}
                 ldap_value_free(vals);
 
                 vals = (char **)ldap_get_values(data->ld,entry,data->uidattr);
                 if( ldap_count_values(vals) <= 0 ) {
                     ldap_value_free(vals);
+					for (i = 0; i < gcount; i++)
+						if (groups[i])
+							free(groups[i]);
+					free(groups);
                     continue;
                 }
                 if( data->realm == NULL ) {
@@ -466,9 +488,19 @@ retry_pubrost:
                 }
                 ldap_value_free(vals);
 
+            	log_debug(ZONE, "adding '%s' [%s] with %d groups to set", name, jid, gcount);
+				
                 o = os_object_new(*os);
                 os_object_put(o,"jid",jid,os_type_STRING);
-                os_object_put(o,"group",group,os_type_STRING);
+				os_object_put(o, "groupCount", &gcount, os_type_INTEGER);
+				for (i = 0; i < gcount; i++)
+					if (groups[i])
+					{
+						sprintf(group, "group%d", i);
+                		os_object_put(o, group, groups[i], os_type_STRING);
+						free(groups[i]);
+					}
+				free(groups);
                 os_object_put(o,"name",name,os_type_STRING);
                 ival=1;
                 os_object_put(o,"to",&ival,os_type_BOOLEAN);

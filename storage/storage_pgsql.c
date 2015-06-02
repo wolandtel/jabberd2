@@ -417,7 +417,7 @@ static st_ret_t _st_pgsql_get(st_driver_t drv, const char *type, const char *own
                     break;
 
                 default:
-                    log_debug(ZONE, "unknown oid %d, ignoring it", PQfname(res, j));
+                    log_debug(ZONE, "unknown oid %d for field '%s', ignoring it", PQftype(res, j), PQfname(res, j));
                     continue;
             }
 
@@ -508,7 +508,7 @@ static st_ret_t _st_pgsql_count(st_driver_t drv, const char *type, const char *o
         return st_NOTFOUND;
     }
 
-    if(PQgetisnull(res, 0, 0) || PQftype(res, 0) != 20)
+    if(PQgetisnull(res, 0, 0) || PQftype(res, 0) != 20) // FIX: there is no PQclear!
         return st_NOTFOUND;
 
     if (count!=NULL)

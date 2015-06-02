@@ -7,7 +7,7 @@ exec perl -w -x $0 "$@"
 
 ##############################################################################
 #
-# jabberd - perl wrapper script to manage launching and controlling the various
+# @package@ - perl wrapper script to manage launching and controlling the various
 #           binaries that make up the 2.0 version of the jabberd server.
 #
 ##############################################################################
@@ -27,8 +27,8 @@ use POSIX qw(setsid);
 my $Bin = "@bindir@";
 my $LibExec = "@libexecdir@";
 my $VERSION = "@VERSION@";
-my $config_dir = "@sysconfdir@";
-my $config = $config_dir."/jabberd.cfg";
+my $config_dir = "@sysconfdir@/@package@";
+my $config = $config_dir."/@package@.cfg";
 $config = "internal" unless (-e $config);
 my $debug = 0;
 my $daemon = 0;
@@ -67,7 +67,7 @@ $SIG{CHLD} = "IGNORE";
 #-----------------------------------------------------------------------------
 # Setup the jobs: router, sm, c2s, s2s
 #-----------------------------------------------------------------------------
-$jobs{jabberd}->{prefix}  = "JBRD";
+$jobs{@package@}->{prefix}  = "JBRD";
 
 $jobs{router}->{cmd} = "$Bin/router";
 $jobs{router}->{config} = "$config_dir/router.xml";
@@ -85,12 +85,17 @@ $jobs{s2s}->{cmd} = "$Bin/s2s";
 $jobs{s2s}->{config} = "$config_dir/s2s.xml";
 $jobs{s2s}->{prefix} = "S2S";
 
+$jobs{muc}->{cmd} = "$Bin/muc";
+$jobs{muc}->{config} = "$config_dir/muc.xml";
+$jobs{muc}->{prefix} = "MUC";
+
 if ($config eq "internal")
 {
     $programs[0] = ["router"];
     $programs[1] = ["sm"];
     $programs[2] = ["c2s"];
     $programs[3] = ["s2s"];
+    $programs[4] = ["muc"];
 }
 else
 {
@@ -117,9 +122,9 @@ else
 
 if ($debug)
 {
-    &debug("jabberd","stdout","debug on\n");
-    &debug("jabberd","stdout","version($VERSION)\n");
-    &debug("jabberd","stdout","config_dir($config_dir)\n");
+    &debug("@package@","stdout","debug on\n");
+    &debug("@package@","stdout","version($VERSION)\n");
+    &debug("@package@","stdout","config_dir($config_dir)\n");
 }
 
 #-----------------------------------------------------------------------------
@@ -220,7 +225,7 @@ sub LaunchJob
         $cmd .= " ".$jobs{$job}->{args};
     }
     
-    &debug("jabberd","stdout","LaunchJob: $job -> $cmd\n");
+    &debug("@package@","stdout","LaunchJob: $job -> $cmd\n");
 
     &CloseJob($job) if exists($jobs{$job}->{launched});
     
@@ -291,7 +296,7 @@ sub PassSignal
     foreach my $job (keys(%jobs))
     {
         next unless exists($jobs{$job}->{launched});
-        &debug("jabberd","stdout","sending $sig to $jobs{$job}->{pid} : $job\n");
+        &debug("@package@","stdout","sending $sig to $jobs{$job}->{pid} : $job\n");
         kill $sig => $jobs{$job}->{pid};
     }
 }
@@ -344,7 +349,7 @@ sub debug
 ##############################################################################
 sub usage
 {
-    print "$exe - jabberd wrapper script ($VERSION)\n";
+    print "$exe - @package@ wrapper script ($VERSION)\n";
     print "Usage: $exe <options>\n";
     print "Options are:\n";
     print "   -c <file>  config file to use [default: $config]\n";

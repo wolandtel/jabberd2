@@ -13,7 +13,7 @@ is the core component of the jabberd system. It passes XML packets between the c
 Show summary of options.
 .TP
 .B \-c
-Alternate configuration file to use. The compiled-in default is @sysconfdir@/router.xml.
+Alternate configuration file to use. The compiled-in default is @sysconfdir@/@package@/router.xml.
 .TP
 .B \-D
 Print debugging output. You should configure jabberd with the --enable-debug switch to enable this.

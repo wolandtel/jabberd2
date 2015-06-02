@@ -5,7 +5,7 @@
 
   <!-- The process ID file. Comment this out if you don't need to know
        the process ID from outside the process (eg for control scripts) -->
-  <pidfile>@localstatedir@/@package@/pid/${id}.pid</pidfile>
+  <pidfile>@localstatedir@/run/@package@/${id}.pid</pidfile>
 
   <!-- Router connection configuration -->
   <router>
@@ -14,7 +14,7 @@
     <port>5347</port>             <!-- default: 5347 -->
 
     <!-- Username/password to authenticate as -->
-    <user>jabberd</user>          <!-- default: jabberd -->
+    <user>@package@</user>          <!-- default: @package@ -->
     <pass>secret</pass>           <!-- default: secret -->
 
     <!-- File containing an SSL certificate and private key to use when
@@ -27,7 +27,7 @@
          If this is commented out, or the file can't be read, no attempt
          will be made to establish an encrypted channel with the router. -->
     <!--
-    <pemfile>@sysconfdir@/server.pem</pemfile>
+    <pemfile>@sysconfdir@/@package@/server.pem</pemfile>
     -->
 
     <!-- Router connection retry -->
@@ -52,7 +52,7 @@
   <!-- Log configuration - type is "syslog", "file" or "stdout" -->
   <log type='syslog'>
     <!-- If logging to syslog, this is the log ident -->
-    <ident>jabberd/sm</ident>
+    <ident>@package@/sm</ident>
 
     <!-- If logging to syslog, this is the log facility
          (local0 - local7)                        [default: local3] -->
@@ -60,12 +60,12 @@
 
     <!-- If logging to file, this is the filename of the logfile -->
     <!--
-    <file>@localstatedir@/@package@/log/sm.log</file>
+    <file>@localstatedir@/log/@package@/sm.log</file>
     -->
 
     <!-- Filename of the debug logfile -->
     <!--
-    <debug>@localstatedir@/@package@/log/debug-${id}.log</debug>
+    <debug>@localstatedir@/log/@package@/debug/${id}.log</debug>
     -->
   </log>
 
@@ -139,7 +139,7 @@
     <!-- SQLite driver configuration -->
     <sqlite>
       <!-- Database name -->
-      <dbname>@localstatedir@/@package@/db/sqlite.db</dbname>
+      <dbname>@localstatedir@/lib/@package@/db/sqlite.db</dbname>
 
       <!-- Transaction support. If this is commented out, transactions
            will be disabled. This might make database accesses faster,
@@ -157,10 +157,10 @@
       <port>3306</port>
 
       <!-- Database name -->
-      <dbname>jabberd2</dbname>
+      <dbname>@package@</dbname>
 
       <!-- Database username and password -->
-      <user>jabberd2</user>
+      <user>@package@</user>
       <pass>secret</pass>
 
       <!-- Transaction support. If this is commented out, transactions
@@ -178,7 +178,7 @@
       <!-- PostgreSQL connection info.
            For the rest of the options see
            http://www.postgresql.org/docs/8.0/interactive/libpq.html -->
-      <conninfo>dbname=jabberd2 user=jabberd2 password=secret</conninfo>
+      <conninfo>dbname=@package@ user=@package@ password=secret</conninfo>
 
       <!-- Alternatively you may set connection settings separately.
            These are used only in absence of 'conninfo' -->
@@ -188,13 +188,13 @@
       <port>5432</port>
 
       <!-- Database name -->
-      <dbname>jabberd2</dbname>
+      <dbname>@package@</dbname>
 
       <!-- Database schema -->
       <schema>public</schema>
 
       <!-- Database username and password -->
-      <user>jabberd2</user>
+      <user>@package@</user>
       <pass>secret</pass>
 
       <!-- Transaction support. If this is commented out, transactions
@@ -208,7 +208,7 @@
          implementation does not implement the 'count' callback). -->
     <db>
       <!-- Directory to store database files under -->
-      <path>@localstatedir@/@package@/db</path>
+      <path>@localstatedir@/lib/@package@/db</path>
 
       <!-- Synchronize the database to disk after each write. If you
            disable this, database accesses may be faster, but data may
@@ -223,17 +223,17 @@
       <port>1521</port>
 
       <!-- Database name -->
-      <dbname>jabberd2</dbname>
+      <dbname>@package@</dbname>
 
       <!-- Database username and password -->
-      <user>jabberd2</user>
+      <user>@package@</user>
       <pass>secret</pass>
     </oracle>
 
     <!-- Filesystem driver configuration -->
     <fs>
       <!-- Directory to store database files under. -->
-      <path>@localstatedir@/lib/jabberd2/fs</path>
+      <path>@localstatedir@/lib/@package@/fs</path>
     </fs>
 
     <!-- LDAPVCARD driver configuration -->
@@ -257,7 +257,7 @@
       <uidattr>uid</uidattr>
       <objectclass>posixAccount</objectclass>
       <pwattr>userPassword</pwattr>
-      <!-- if you use included jabberd.schema use this:
+      <!-- if you use included @package@.schema use this:
       <uidattr>jid</uidattr>
       <objectclass>jabberUser</objectclass>
       <pwattr>jabberPassword</pwattr>
@@ -732,7 +732,7 @@
            stored in the users data store when they are created. -->
       <!-- If you defined publish, you should comment-out <roster> -->
       <!--
-      <roster>@sysconfdir@/templates/roster.xml</roster>
+      <roster>@sysconfdir@/@package@/templates/roster.xml</roster>
       -->
     </template>
   </user>

@@ -5,12 +5,12 @@
 
   <!-- The process ID file. Comment this out if you don't need to know
        the process ID from outside the process (eg for control scripts) -->
-  <pidfile>@localstatedir@/@package@/pid/${id}.pid</pidfile>
+  <pidfile>@localstatedir@/run/@package@/${id}.pid</pidfile>
 
   <!-- Log configuration - type is "syslog", "file" or "stdout" -->
   <log type='syslog'>
     <!-- If logging to syslog, this is the log ident -->
-    <ident>jabberd/router</ident>
+    <ident>@package@/router</ident>
 
     <!-- If logging to syslog, this is the log facility
          (local0 - local7)                        [default: local3] -->
@@ -18,12 +18,12 @@
 
     <!-- If logging to file, this is the filename of the logfile -->
     <!--
-    <file>@localstatedir@/@package@/log/router.log</file>
+    <file>@localstatedir@/log/@package@/router.log</file>
     -->
 
     <!-- Filename of the debug logfile -->
     <!--
-    <debug>@localstatedir@/@package@/log/debug-${id}.log</debug>
+    <debug>@localstatedir@/log/@package@/debug/${id}.log</debug>
     -->
   </log>
 
@@ -38,7 +38,7 @@
     <!-- File containing the user table. This is where the router gets
          its component and secret information from for component
          authentication.-->
-    <users>@sysconfdir@/router-users.xml</users>
+    <users>@sysconfdir@/@package@/router-users.xml</users>
 
     <!-- Shared secret used to identify XEP-0114 components (that is,
          "jabber:component:accept" components that authenticate using
@@ -57,7 +57,7 @@
          If this is commented out, connecting components will not be able
          to request an SSL-encrypted channel. -->
     <!--
-    <pemfile>@sysconfdir@/server.pem</pemfile>
+    <pemfile>@sysconfdir@/@package@/server.pem</pemfile>
     -->
   </local>
 
@@ -171,7 +171,7 @@
     <!-- The usernames listed here will get access to all restricted
          functions, regardless of restrictions further down -->
     <acl type='all'>
-      <user>jabberd</user>
+      <user>@package@</user>
     </acl>
 
     <!-- These users can bind names other than their username -->
@@ -196,7 +196,7 @@
 
     <!-- File containing packet filter rules.
          May be used for fine grained packet routing control. -->
-    <filter>@sysconfdir@/router-filter.xml</filter>
+    <filter>@sysconfdir@/@package@/router-filter.xml</filter>
 
   </aci>
 

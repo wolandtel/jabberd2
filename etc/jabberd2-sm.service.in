@@ -1,11 +1,11 @@
 [Unit]
 Description=Jabber IM Session Manager
 After=network.target
-BindTo=jabberd.service
+BindTo=@package@.service
 
 [Service]
 User=jabber
-ExecStart=@bindir@/@jabberd_sm_bin@ -c @sysconfdir@/sm.xml
+ExecStart=@bindir@/@package_sm_bin@ -c @configdir@/sm.xml
 
 [Install]
 WantedBy=multi-user.target

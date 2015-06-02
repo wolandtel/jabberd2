@@ -13,7 +13,7 @@ is a script that runs the various components that make up the jabberd "server".
 Show summary of options.
 .TP
 .B \-c
-Alternate configuration file to use. The compiled-in default is @sysconfdir@/jabberd.cfg
+Alternate configuration file to use. The compiled-in default is @sysconfdir@/@package@/jabberd.cfg
 .TP
 .B \-D
 Print debugging output. You should configure jabberd with the --enable-debug switch to enable this.

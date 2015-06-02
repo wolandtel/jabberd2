@@ -1,4 +1,5 @@
-templatesdir = $(sysconfdir)/templates
+
+templatesdir = @sysconfdir@/@PACKAGE@/templates
 
 LIBTOOL += --quiet
 

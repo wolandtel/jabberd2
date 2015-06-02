@@ -2,7 +2,7 @@
      secrets. Access control is done via the settings in router.xml -->
 <users>
   <user>
-    <name>jabberd</name>
+    <name>@package@</name>
     <secret>secret</secret>
   </user>
 </users>

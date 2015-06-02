@@ -13,7 +13,7 @@ accepts incoming connections from clients, performs authentication and registrat
 Show summary of options.
 .TP
 .B \-c
-Alternate configuration file to use. The compiled-in default is @sysconfdir@/c2s.xml.
+Alternate configuration file to use. The compiled-in default is @sysconfdir@/@package@/c2s.xml.
 .TP
 .B \-D
 Print debugging output. You should configure jabberd with the --enable-debug switch to enable this.

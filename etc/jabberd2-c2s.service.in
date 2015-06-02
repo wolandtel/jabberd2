@@ -1,0 +1,12 @@
+[Unit]
+Description=Jabber Client To Server Connector
+Requires=@package@-router.service
+After=network.target @package@-router.service
+BindTo=@package@.service
+
+[Service]
+User=jabber
+ExecStart=@bindir@/@package_c2s_bin@ -c @configdir@/c2s.xml
+
+[Install]
+WantedBy=multi-user.target

@@ -13,7 +13,7 @@ provides instant messaging services to Jabber clients. It performs all the essen
 Show summary of options.
 .TP
 .B \-c
-Alternate configuration file to use. The compiled-in default is @sysconfdir@/sm.xml.
+Alternate configuration file to use. The compiled-in default is @sysconfdir@/@package@/sm.xml.
 .TP
 .B \-D
 Print debugging output. You should configure jabberd with the --enable-debug switch to enable this.

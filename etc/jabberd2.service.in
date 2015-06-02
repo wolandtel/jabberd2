@@ -1,0 +1,13 @@
+[Unit]
+Description=Jabber Server
+Requires=jabberd2-router.service jabberd2-sm.service jabberd2-c2s.service jabberd2-s2s.service
+After=network.target jabberd2-router.service jabberd2-sm.service jabberd2-c2s.service jabberd2-s2s.service
+BindTo=jabberd2-router.service jabberd2-sm.service jabberd2-c2s.service jabberd2-s2s.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

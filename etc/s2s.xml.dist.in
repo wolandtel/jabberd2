@@ -5,7 +5,7 @@
 
   <!-- The process ID file. Comment this out if you don't need to know
        the process ID from outside the process (eg for control scripts) -->
-  <pidfile>@localstatedir@/@package@/pid/${id}.pid</pidfile>
+  <pidfile>@localstatedir@/run/@package@/${id}.pid</pidfile>
 
   <!-- Router connection configuration -->
   <router>
@@ -14,7 +14,7 @@
     <port>5347</port>             <!-- default: 5347 -->
 
     <!-- Username/password to authenticate as -->
-    <user>jabberd</user>          <!-- default: jabberd -->
+    <user>@package@</user>          <!-- default: @package@ -->
     <pass>secret</pass>           <!-- default: secret -->
 
     <!-- The router will only allow one component to be the default
@@ -37,7 +37,7 @@
          If this is commented out, or the file can't be read, no attempt
          will be made to establish an encrypted channel with the router. -->
     <!--
-    <pemfile>@sysconfdir@/server.pem</pemfile>
+    <pemfile>@sysconfdir@/@package@/server.pem</pemfile>
     -->
 
     <!-- Router connection retry -->
@@ -62,7 +62,7 @@
   <!-- Log configuration - type is "syslog", "file" or "stdout" -->
   <log type='syslog'>
     <!-- If logging to syslog, this is the log ident -->
-    <ident>jabberd/s2s</ident>
+    <ident>@package@/s2s</ident>
 
     <!-- If logging to syslog, this is the log facility
          (local0 - local7)                        [default: local3] -->
@@ -70,12 +70,12 @@
 
     <!-- if logging to file, this is the filename of the logfile -->
     <!--
-    <file>@localstatedir@/@package@/log/s2s.log</file>
+    <file>@localstatedir@/log/@package@/s2s.log</file>
     -->
 
     <!-- Filename of the debug logfile -->
     <!--
-    <debug>@localstatedir@/@package@/log/debug-${id}.log</debug>
+    <debug>@localstatedir@/log/@package@/debug/${id}.log</debug>
     -->
   </log>
 
@@ -114,7 +114,7 @@
          If this is commented out, or the file can't be read, no attempt will be
          made to establish encrypted connections with other servers. -->
     <!--
-    <pemfile>@sysconfdir@/server.pem</pemfile>
+    <pemfile>@sysconfdir@/@package@/server.pem</pemfile>
     -->
 
     <!-- SSL verify mode - see SSL_CTX_set_verify(3), mode parameter -->
@@ -125,7 +125,7 @@
     <!-- File containing an optional SSL certificate chain file for SSL
          connections. -->
     <!--
-    <cachain>@sysconfdir@/cachain.pem</cachain>
+    <cachain>@sysconfdir@/@package@/cachain.pem</cachain>
     -->
 
   </local>
@@ -240,7 +240,7 @@
   <stats>
     <!-- file containing count of packets that went through -->
     <!--
-    <packet>@localstatedir@/@package@/stats/s2s.packets</packet>
+    <packet>@localstatedir@/lib/@package@/stats/s2s.packets</packet>
     -->
   </stats>
 

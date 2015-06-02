@@ -10,7 +10,8 @@ edit = sed \
 	-e 's,@sysconfdir\@,$(sysconfdir),g' \
 	-e 's,@VERSION\@,$(VERSION),g' \
 	-e 's,@bindir\@,$(bindir),g' \
-	-e 's,@libexecdir\@,$(libexecdir),g'
+	-e 's,@libexecdir\@,$(libexecdir),g' \
+	-e 's,@package\@,$(PACKAGE),g'
 
 $(bin_SCRIPTS): $(EXTRA_DIST)
 	@echo "generating $@ from $@.in"; \

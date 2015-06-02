@@ -7,7 +7,8 @@ jabberd_bin = router sm s2s c2s
 
 edit = sed \
 	-e 's,@sysconfdir\@,$(sysconfdir),g' \
-	-e 's,@VERSION\@,$(VERSION),g'
+	-e 's,@VERSION\@,$(VERSION),g' \
+	-e 's,@package\@,$(PACKAGE),g'
 
 $(man_MANS):
 	@echo "generating $@ from $@.in"; \

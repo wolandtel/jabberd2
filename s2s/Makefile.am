@@ -1,4 +1,4 @@
-AM_CPPFLAGS = -DCONFIG_DIR=\"$(sysconfdir)\" -I@top_srcdir@
+AM_CPPFLAGS = -DCONFIG_DIR=\"$(sysconfdir)/$(PACKAGE)\" -I@top_srcdir@
 
 LIBTOOL += --quiet
 
