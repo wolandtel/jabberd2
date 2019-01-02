@@ -59,51 +59,52 @@ static void _announce_load(module_t mod, moddata_t data, const char *domain) {
 
     /* load the current message */
     if((ret = storage_get(mod->mm->sm->st, "motd-message", domain, NULL, &os)) == st_SUCCESS) {
-        os_iter_first(os);
-        o = os_iter_object(os);
-        if(os_object_get_nad(os, o, "xml", &nad)) {
-            /* Copy the nad, as the original is freed when the os is freed below */
-            data->nad = nad_copy(nad);
-            if((ns = nad_find_scoped_namespace(data->nad, uri_DELAY, NULL)) >= 0 &&
-               (elem = nad_find_elem(data->nad, 1, ns, "x", 1)) >= 0 &&
-               (attr = nad_find_attr(data->nad, elem, -1, "stamp", NULL)) >= 0) {
-                snprintf(timestamp, 18, "%.*s", NAD_AVAL_L(data->nad, attr), NAD_AVAL(data->nad, attr));
+        if(os_iter_first(os)) {
+            o = os_iter_object(os);
+            if(os_object_get_nad(os, o, "xml", &nad)) {
+                /* Copy the nad, as the original is freed when the os is freed below */
+                data->nad = nad_copy(nad);
+                if((ns = nad_find_scoped_namespace(data->nad, uri_DELAY, NULL)) >= 0 &&
+                        (elem = nad_find_elem(data->nad, 1, ns, "x", 1)) >= 0 &&
+                        (attr = nad_find_attr(data->nad, elem, -1, "stamp", NULL)) >= 0) {
+                    snprintf(timestamp, 18, "%.*s", NAD_AVAL_L(data->nad, attr), NAD_AVAL(data->nad, attr));
 
-                /* year */
-                telem[0] = timestamp[0];
-                telem[1] = timestamp[1];
-                telem[2] = timestamp[2];
-                telem[3] = timestamp[3];
-                telem[4] = '\0';
-                tm.tm_year = atoi(telem) - 1900;
+                    /* year */
+                    telem[0] = timestamp[0];
+                    telem[1] = timestamp[1];
+                    telem[2] = timestamp[2];
+                    telem[3] = timestamp[3];
+                    telem[4] = '\0';
+                    tm.tm_year = atoi(telem) - 1900;
 
-                /* month */
-                telem[0] = timestamp[4];
-                telem[1] = timestamp[5];
-                telem[2] = '\0';
-                tm.tm_mon = atoi(telem) - 1;
+                    /* month */
+                    telem[0] = timestamp[4];
+                    telem[1] = timestamp[5];
+                    telem[2] = '\0';
+                    tm.tm_mon = atoi(telem) - 1;
 
-                /* day */
-                telem[0] = timestamp[6];
-                telem[1] = timestamp[7];
-                tm.tm_mday = atoi(telem);
+                    /* day */
+                    telem[0] = timestamp[6];
+                    telem[1] = timestamp[7];
+                    tm.tm_mday = atoi(telem);
 
-                /* hour */
-                telem[0] = timestamp[9];
-                telem[1] = timestamp[10];
-                tm.tm_hour = atoi(telem);
+                    /* hour */
+                    telem[0] = timestamp[9];
+                    telem[1] = timestamp[10];
+                    tm.tm_hour = atoi(telem);
 
-                /* minute */
-                telem[0] = timestamp[12];
-                telem[1] = timestamp[13];
-                tm.tm_min = atoi(telem);
+                    /* minute */
+                    telem[0] = timestamp[12];
+                    telem[1] = timestamp[13];
+                    tm.tm_min = atoi(telem);
 
-                /* second */
-                telem[0] = timestamp[15];
-                telem[1] = timestamp[16];
-                tm.tm_sec = atoi(telem);
-            
-                data->t = timegm(&tm);
+                    /* second */
+                    telem[0] = timestamp[15];
+                    telem[1] = timestamp[16];
+                    tm.tm_sec = atoi(telem);
+
+                    data->t = timegm(&tm);
+                }
             }
         }
 
@@ -139,10 +140,11 @@ static mod_ret_t _announce_in_sess(mod_instance_t mi, sess_t sess, pkt_t pkt) {
         /* load the time of the last motd they got */
         if((time_t) sess->user->module_data[mod->index] == 0 &&
            storage_get(sess->user->sm->st, "motd-times", jid_user(sess->jid), NULL, &os) == st_SUCCESS) {
-            os_iter_first(os);
-            o = os_iter_object(os);
-            os_object_get_time(os, o, "time", &t);
-            sess->user->module_data[mod->index] = (void *) t;
+            if(os_iter_first(os)) {
+                o = os_iter_object(os);
+                os_object_get_time(os, o, "time", &t);
+                sess->user->module_data[mod->index] = (void *) t;
+            }
             os_free(os);
         }
 
@@ -157,10 +159,9 @@ static mod_ret_t _announce_in_sess(mod_instance_t mi, sess_t sess, pkt_t pkt) {
         nad_set_attr(nad, 1, -1, "to", jid_full(sess->jid), strlen(jid_full(sess->jid)));
         nad_set_attr(nad, 1, -1, "from", sess->user->jid->domain, strlen(sess->user->jid->domain));
 
-        motd = pkt_new(mod->mm->sm, nad);
+        motd = pkt_new(mod->mm->sm, nad); // pkt_new takes ownership of given nad
         if(motd == NULL) {
             log_debug(ZONE, "invalid stored motd, not delivering");
-            nad_free(nad);
         } else
             pkt_router(motd);
 
@@ -228,7 +229,7 @@ static mod_ret_t _announce_pkt_sm(mod_instance_t mi, pkt_t pkt) {
     /* we want messages addressed to /announce */
     if(!(pkt->type & pkt_MESSAGE) || strlen(pkt->to->resource) < 8 || strncmp(pkt->to->resource, data->announce_resource, 8) != 0)
         return mod_PASS;
-    
+
     /* make sure they're allowed */
     if(!aci_check(mod->mm->sm->acls, "broadcast", pkt->from)) {
         log_debug(ZONE, "not allowing broadcast from %s", jid_full(pkt->from));

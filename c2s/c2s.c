@@ -105,37 +105,6 @@ static int _c2s_client_sx_callback(sx_t s, sx_event_t e, void *data, void *arg) 
 
             log_debug(ZONE, "read %d bytes", len);
 
-            /* If the first chars are "GET " then it's for HTTP (GET ....)
-               and if we configured http client forwarding to a real http server */
-            if (sess->c2s->http_forward && !sess->active && !sess->sasl_authd
-                && sess->result == NULL && len >= 4 && strncmp("GET ", buf->data, 4) == 0) {
-                char* http =
-                    "HTTP/1.0 301 Found\r\n"
-                    "Location: %s\r\n"
-                    "Server: " PACKAGE_STRING "\r\n"
-                    "Expires: Fri, 10 Oct 1997 10:10:10 GMT\r\n"
-                    "Pragma: no-cache\r\n"
-                    "Cache-control: private\r\n"
-                    "Connection: close\r\n\r\n";
-                char *answer;
-
-                len = strlen(sess->c2s->http_forward) + strlen(http);
-                answer = malloc(len * sizeof(char));
-                sprintf (answer, http, sess->c2s->http_forward);
-
-                log_write(sess->c2s->log, LOG_NOTICE, "[%d] bouncing HTTP request to %s", sess->fd->fd, sess->c2s->http_forward);
-
-                /* send HTTP answer */
-                len = send(sess->fd->fd, answer, len-1, 0);
-
-                free(answer);
-
-                /* close connection */
-                sx_kill(s);
-
-                return -1;
-            }
-
             buf->len = len;
 
             return len;
@@ -190,7 +159,7 @@ static int _c2s_client_sx_callback(sx_t s, sx_event_t e, void *data, void *arg) 
                 sx_error_extended(s, stream_err_SEE_OTHER_HOST, other_host);
                 free(other_host);
                 sx_close(s);
-                
+
                 return 0;
             }
 
@@ -478,20 +447,21 @@ static int _c2s_client_sx_callback(sx_t s, sx_event_t e, void *data, void *arg) 
 
             /* only send a result and bring us online if this wasn't a sasl auth */
             if(strlen(s->auth_method) < 4 || strncmp("SASL", s->auth_method, 4) != 0) {
-                /* return the auth result to the client */
-                sx_nad_write(s, sess->result);
-                sess->result = NULL;
+		if(sess->result) {
+			/* return the auth result to the client */
+			sx_nad_write(s, sess->result);
+			sess->result = NULL;
 
-                /* we're good to go */
-                sess->active = 1;
+			/* we're good to go */
+			sess->active = 1;
+		}
             }
 
             /* they sasl auth'd, so we only want the new-style session start */
             else {
-                log_write(sess->c2s->log, LOG_NOTICE, "[%d] %s authentication succeeded: %s %s:%d%s%s",
+                log_write(sess->c2s->log, LOG_NOTICE, "[%d] %s authentication succeeded: %s %s:%d %s",
                     sess->s->tag, &sess->s->auth_method[5],
-                    sess->s->auth_id, sess->s->ip, sess->s->port,
-                    sess->s->ssf ? " TLS" : "", sess->s->compressed ? " ZLIB" : ""
+                    sess->s->auth_id, sess->s->ip, sess->s->port, _sx_flags(sess->s)
                 );
                 sess->sasl_authd = 1;
             }
@@ -565,7 +535,7 @@ static int _c2s_client_mio_callback(mio_t m, mio_action_t a, mio_fd_t fd, void *
         case action_CLOSE:
             log_debug(ZONE, "close action on fd %d", fd->fd);
 
-            log_write(sess->c2s->log, LOG_NOTICE, "[%d] [%s, port=%d] disconnect jid=%s, packets: %i", sess->fd->fd, sess->ip, sess->port, ((sess->resources)?((char*) jid_full(sess->resources->jid)):"unbound"), sess->packet_count);
+            log_write(sess->c2s->log, LOG_NOTICE, "[%d] [%s, port=%d] disconnect jid=%s, packets: %i, bytes: %d", sess->fd->fd, sess->ip, sess->port, ((sess->resources)?((char*) jid_full(sess->resources->jid)):"unbound"), sess->packet_count, sess->s->tbytes);
 
             /* tell the sm to close their session */
             if(sess->active)
@@ -574,8 +544,8 @@ static int _c2s_client_mio_callback(mio_t m, mio_action_t a, mio_fd_t fd, void *
 
             /* call the session end callback to allow for authreg
              * module to cleanup private data */
-            if(sess->c2s->ar->sess_end != NULL)
-                (sess->c2s->ar->sess_end)(sess->c2s->ar, sess);
+            if(sess->host && sess->host->ar->sess_end != NULL)
+                (sess->host->ar->sess_end)(sess->host->ar, sess);
 
             /* force free authreg_private if pointer is still set */
             if (sess->authreg_private != NULL) {
@@ -594,7 +564,8 @@ static int _c2s_client_mio_callback(mio_t m, mio_action_t a, mio_fd_t fd, void *
         case action_ACCEPT:
             log_debug(ZONE, "accept action on fd %d", fd->fd);
 
-            getpeername(fd->fd, (struct sockaddr *) &sa, &namelen);
+            if(getpeername(fd->fd, (struct sockaddr *) &sa, &namelen) < 0)
+                return 1;
             port = j_inet_getport(&sa);
 
             log_write(c2s->log, LOG_NOTICE, "[%d] [%s, port=%d] connect", fd->fd, (char *) data, port);
@@ -631,7 +602,8 @@ static int _c2s_client_mio_callback(mio_t m, mio_action_t a, mio_fd_t fd, void *
             sess->s->port = sess->port;
 
             /* find out which port this is */
-            getsockname(fd->fd, (struct sockaddr *) &sa, &namelen);
+            if(getsockname(fd->fd, (struct sockaddr *) &sa, &namelen) < 0)
+                return 1;
             port = j_inet_getport(&sa);
 
             /* remember it */
@@ -645,7 +617,7 @@ static int _c2s_client_mio_callback(mio_t m, mio_action_t a, mio_fd_t fd, void *
                 flags |= SX_SSL_WRAPPER;
 #endif
 #ifdef HAVE_LIBZ
-            if(c2s->compression)
+            if(c2s->compression && !(sess->s->flags & SX_WEBSOCKET_WRAPPER))
                 flags |= SX_COMPRESS_OFFER;
 #endif
             sx_server_init(sess->s, flags);
@@ -771,7 +743,7 @@ int c2s_router_sx_callback(sx_t s, sx_event_t e, void *data, void *arg) {
                 return len;
             }
 
-            if(MIO_WOULDBLOCK) 
+            if(MIO_WOULDBLOCK)
                 return 0;
 
             log_write(c2s->log, LOG_NOTICE, "[%d] [router] write error: %s (%d)", c2s->fd->fd, MIO_STRERROR(MIO_ERROR), MIO_ERROR);
@@ -933,7 +905,7 @@ int c2s_router_sx_callback(sx_t s, sx_event_t e, void *data, void *arg) {
             }
 
             /* we want route */
-            if(NAD_ENAME_L(nad, 0) != 5 || strncmp("route", NAD_ENAME(nad, 0), 5) != 0) { 
+            if(NAD_ENAME_L(nad, 0) != 5 || strncmp("route", NAD_ENAME(nad, 0), 5) != 0) {
                 log_debug(ZONE, "wanted {component}route, dropping");
                 nad_free(nad);
                 return 0;
@@ -1000,7 +972,6 @@ int c2s_router_sx_callback(sx_t s, sx_event_t e, void *data, void *arg) {
                     }
 
                     /* build temporary resource to close session for */
-                    tres = NULL;
                     tres = (bres_t) calloc(1, sizeof(struct bres_st));
                     tres->jid = jid_new(NAD_AVAL(nad, target), NAD_AVAL_L(nad, target));
 
@@ -1228,8 +1199,8 @@ int c2s_router_sx_callback(sx_t s, sx_event_t e, void *data, void *arg) {
                        (NAD_AVAL_L(nad, action) == 6 && strncmp("create", NAD_AVAL(nad, action), 6) == 0)) {
 
                         /* create failed, so we need to remove them from authreg */
-                        if(NAD_AVAL_L(nad, action) == 6 && c2s->ar->delete_user != NULL) {
-                            if((c2s->ar->delete_user)(c2s->ar, sess, bres->jid->node, sess->host->realm) != 0)
+                        if(NAD_AVAL_L(nad, action) == 6 && sess->host->ar->delete_user != NULL) {
+                            if((sess->host->ar->delete_user)(sess->host->ar, sess, bres->jid->node, sess->host->realm) != 0)
                                 log_write(c2s->log, LOG_NOTICE, "[%d] user creation failed, and unable to delete user credentials: user=%s, realm=%s", sess->s->tag, bres->jid->node, sess->host->realm);
                             else
                                 log_write(c2s->log, LOG_NOTICE, "[%d] user creation failed, so deleted user credentials: user=%s, realm=%s", sess->s->tag, bres->jid->node, sess->host->realm);
@@ -1274,8 +1245,8 @@ int c2s_router_sx_callback(sx_t s, sx_event_t e, void *data, void *arg) {
 
                     /* and remember the SM that services us */
                     from = nad_find_attr(nad, 0, -1, "from", NULL);
-                    
-                    
+
+
                     smcomp = malloc(NAD_AVAL_L(nad, from) + 1);
                     snprintf(smcomp, NAD_AVAL_L(nad, from) + 1, "%.*s", NAD_AVAL_L(nad, from), NAD_AVAL(nad, from));
                     sess->smcomp = smcomp;
@@ -1323,11 +1294,9 @@ int c2s_router_sx_callback(sx_t s, sx_event_t e, void *data, void *arg) {
 
                 /* sm is bouncing something */
                 if(nad_find_attr(nad, 1, ns, "failed", NULL) >= 0) {
-                    if(s) {
-                        /* there's really no graceful way to handle this */
-                        sx_error(s, stream_err_INTERNAL_SERVER_ERROR, "session manager failed control action");
-                        sx_close(s);
-                    }
+                    /* there's really no graceful way to handle this */
+                    sx_error(s, stream_err_INTERNAL_SERVER_ERROR, "session manager failed control action");
+                    sx_close(s);
 
                     nad_free(nad);
                     return 0;

@@ -140,12 +140,18 @@ struct host_st {
     /** require starttls */
     int                 host_require_starttls;
 
+    /** list of TLS ciphers */
+    const char          *host_ciphers;
+
+    /* authreg module if different than default */
+    const char          *ar_module_name;
+    authreg_t           ar;
+
     /** registration */
     int                 ar_register_enable;
     const char          *ar_register_instructions;
     const char          *ar_register_oob;
     int                 ar_register_password;
-
 };
 
 struct c2s_st {
@@ -160,6 +166,7 @@ struct c2s_st {
     const char          *router_pemfile;
     const char          *router_cachain;
     const char          *router_private_key_password;
+    const char          *router_ciphers;
 
     /** mio context */
     mio_t               mio;
@@ -224,8 +231,14 @@ struct c2s_st {
     /** verify-mode  */
     int                 local_verify_mode;
 
+    /** list of TLS ciphers */
+    const char          *local_ciphers;
+
     /** http forwarding URL */
     const char          *http_forward;
+
+    /** websocket support */
+    int                 websocket;
 
     /** PBX integration named pipe */
     const char          *pbx_pipe;
@@ -248,14 +261,17 @@ struct c2s_st {
 
     time_t              next_check;
 
-    /** auth/reg module */
+    /** default auth/reg module */
     const char          *ar_module_name;
     authreg_t           ar;
+
+    /** loaded auth/reg modules */
+    xht                 ar_modules;
 
     /** allowed mechanisms */
     int                 ar_mechanisms;
     int                 ar_ssl_mechanisms;
-    
+
     /** connection rates */
     int                 conn_rate_total;
     int                 conn_rate_seconds;
@@ -320,6 +336,10 @@ JABBERD2_API int    address_init(sx_env_t env, sx_plugin_t p, va_list args);
 struct authreg_st
 {
     c2s_t       c2s;
+    int         initialized;
+
+    /**< loaded module handle */
+    void        *handle;
 
     /** module private data */
     void        *private;

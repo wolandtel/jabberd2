@@ -67,7 +67,7 @@ static st_ret_t _st_db_add_type(st_driver_t drv, const char *type) {
     drvdata_t data = (drvdata_t) drv->private;
     dbdata_t dbd;
     int err;
-    
+
     dbd = (dbdata_t) calloc(1, sizeof(struct dbdata_st));
 
     dbd->data = data;
@@ -162,7 +162,7 @@ static void _st_db_object_serialise(os_object_t o, char **buf, int *len) {
              */
             val = NULL;
             os_object_iter_get(o, &key, &val, &ot);
-            
+
             log_debug(ZONE, "serialising key %s", key);
 
             ser_string_set(key, &cur, buf, len);
@@ -170,11 +170,11 @@ static void _st_db_object_serialise(os_object_t o, char **buf, int *len) {
 
             switch(ot) {
                 case os_type_BOOLEAN:
-                    ser_int_set(((int)val) != 0, &cur, buf, len);
+                    ser_int_set(((intptr_t)val) != 0, &cur, buf, len);
                     break;
 
                 case os_type_INTEGER:
-                    ser_int_set((int)val, &cur, buf, len);
+                    ser_int_set((intptr_t)val, &cur, buf, len);
                     break;
 
                 case os_type_STRING:
@@ -211,8 +211,14 @@ static os_object_t _st_db_object_deserialise(st_driver_t drv, os_t os, const cha
 
     cur = 0;
     while(cur < len) {
-        if(ser_string_get(&key, &cur, buf, len) != 0 || ser_int_get(&ot, &cur, buf, len) != 0) {
+        if(ser_string_get(&key, &cur, buf, len) != 0) {
             log_debug(ZONE, "ran off the end of the buffer");
+            return o;
+        }
+
+        if(ser_int_get(&ot, &cur, buf, len) != 0) {
+            log_debug(ZONE, "ran off the end of the buffer");
+            free(key);
             return o;
         }
 
@@ -242,12 +248,13 @@ static os_object_t _st_db_object_deserialise(st_driver_t drv, os_t os, const cha
                 free(sval);
                 if(nad == NULL) {
                     log_write(drv->st->log, LOG_ERR, "db: unable to parse stored XML - database corruption?");
+                    free(key);
                     return NULL;
                 }
                 os_object_put(o, key, nad, os_type_NAD);
                 nad_free(nad);
                 break;
-  
+
            case os_type_UNKNOWN:
                 break;
         }
@@ -277,7 +284,7 @@ static st_ret_t _st_db_put_guts(st_driver_t drv, const char *type, const char *o
 
             val.data = buf;
             val.size = len;
-        
+
             if((err = c->c_put(c, &key, &val, DB_KEYLAST)) != 0) {
                 log_write(drv->st->log, LOG_ERR, "db: couldn't store value for type %s owner %s in storage db: %s", type, owner, db_strerror(err));
                 free(buf);
@@ -297,6 +304,10 @@ static st_ret_t _st_db_put(st_driver_t drv, const char *type, const char *owner,
     DBC *c;
     DB_TXN *t;
     st_ret_t ret;
+
+    if(dbd == NULL) {
+        return st_FAILED;
+    }
 
     if(os_count(os) == 0)
         return st_SUCCESS;
@@ -326,6 +337,10 @@ static st_ret_t _st_db_get(st_driver_t drv, const char *type, const char *owner,
     int err;
     os_object_t o;
     char *cfilter;
+
+    if(dbd == NULL) {
+        return st_FAILED;
+    }
 
     ret = _st_db_cursor_new(drv, dbd, &c, &t);
     if(ret != st_SUCCESS)
@@ -441,6 +456,10 @@ static st_ret_t _st_db_delete(st_driver_t drv, const char *type, const char *own
     DB_TXN *t;
     st_ret_t ret;
 
+    if(dbd == NULL) {
+        return st_FAILED;
+    }
+
     ret = _st_db_cursor_new(drv, dbd, &c, &t);
     if(ret != st_SUCCESS)
         return ret;
@@ -461,6 +480,10 @@ static st_ret_t _st_db_replace(st_driver_t drv, const char *type, const char *ow
     DBC *c;
     DB_TXN *t;
     st_ret_t ret;
+
+    if(dbd == NULL) {
+        return st_FAILED;
+    }
 
     ret = _st_db_cursor_new(drv, dbd, &c, &t);
     if(ret != st_SUCCESS)
@@ -552,7 +575,7 @@ st_ret_t st_init(st_driver_t drv) {
     /* store the log context in case we panic */
     env->app_private = drv->st->log;
 
-    if((err = env->open(env, path, DB_INIT_LOCK | DB_INIT_MPOOL | DB_INIT_LOG | DB_INIT_TXN | DB_CREATE, 0)) != 0) {
+    if((err = env->open(env, path, DB_INIT_LOCK | DB_INIT_MPOOL | DB_INIT_LOG | DB_INIT_TXN | DB_CREATE | DB_RECOVER, 0)) != 0) {
         log_write(drv->st->log, LOG_ERR, "db: couldn't open environment: %s", db_strerror(err));
         env->close(env, 0);
         return st_FAILED;

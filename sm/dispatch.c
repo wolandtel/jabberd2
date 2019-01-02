@@ -82,19 +82,17 @@ void dispatch(sm_t sm, pkt_t pkt) {
     }
 
     /* preprocessing */
-    if (pkt != NULL && pkt->sm != NULL) {
-        ret = mm_in_router(pkt->sm->mm, pkt);
-        switch(ret) {
-            case mod_HANDLED:
-                return;
- 
-            case mod_PASS:
-                break;
+    ret = mm_in_router(pkt->sm->mm, pkt);
+    switch(ret) {
+        case mod_HANDLED:
+            return;
 
-            default:
-                pkt_router(pkt_error(pkt, -ret));
-                return;
-        }
+        case mod_PASS:
+            break;
+
+        default:
+            pkt_router(pkt_error(pkt, -ret));
+            return;
     }
 
     /* has to come from someone and be directed to someone */
@@ -150,7 +148,7 @@ void dispatch(sm_t sm, pkt_t pkt) {
         switch(ret) {
             case mod_HANDLED:
                 break;
-    
+
             case mod_PASS:
                 /* ignore IQ result packets that haven't been handled - XMPP 9.2.3.4 */
                 if(pkt->type == pkt_IQ_RESULT) {

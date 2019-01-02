@@ -1,4 +1,5 @@
 LIBTOOL += --quiet
+AM_CPPFLAGS = -I@top_srcdir@
 
 bin_PROGRAMS = sm
 
@@ -25,7 +26,8 @@ pkglib_LTLIBRARIES = mod_active.la \
                   mod_status.la \
                   mod_template-roster.la \
                   mod_vacation.la \
-                  mod_validate.la
+                  mod_validate.la \
+                  mod_verify.la
 
 noinst_HEADERS = sm.h
 
@@ -192,5 +194,11 @@ mod_validate_la_SOURCES = mod_validate.c
 mod_validate_la_LDFLAGS = -module -export-dynamic
 if USE_LIBSUBST
 mod_validate_la_LIBADD = $(top_builddir)/subst/libsubst.la
+endif
+
+mod_verify_la_SOURCES = mod_verify.c
+mod_verify_la_LDFLAGS = -module -export-dynamic
+if USE_LIBSUBST
+mod_verify_la_LIBADD = $(top_builddir)/subst/libsubst.la
 endif
 

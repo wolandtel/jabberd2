@@ -26,6 +26,7 @@
   */
 
 #include "storage.h"
+#include <inttypes.h>
 #include <mysql.h>
 
 /** internal structure, holds our data */
@@ -51,7 +52,7 @@ static size_t _st_mysql_realloc(char **oblocks, size_t len) {
 #elif defined(_SC_PAGESIZE)
         block_size = sysconf(_SC_PAGESIZE);
 #elif defined(_SC_PAGE_SIZE)
-        block_size = sysconf(_SC_PAGE_SIZE);    
+        block_size = sysconf(_SC_PAGE_SIZE);
 #else
         block_size = FALLBACK_BLOCKSIZE;
 #endif
@@ -70,7 +71,7 @@ static size_t _st_mysql_realloc(char **oblocks, size_t len) {
 
 static void _st_mysql_convert_filter_recursive(st_driver_t drv, st_filter_t f, char **buf, int *buflen, int *nbuf) {
     drvdata_t data = (drvdata_t) drv->private;
-    st_filter_t scan; 
+    st_filter_t scan;
     char *cval;
     int vlen;
 
@@ -187,10 +188,10 @@ static st_ret_t _st_mysql_put_guts(st_driver_t drv, const char *type, const char
         do {
             MYSQL_SAFE(left, strlen(type) + 35, lleft);
             nleft = sprintf(left, "INSERT INTO `%s` ( `collection-owner`", type);
-    
+
             MYSQL_SAFE(right, strlen(owner) + 14, lright);
             nright = sprintf(right, " ) VALUES ( '%s'", owner);
-    
+
             o = os_iter_object(os);
             if(os_object_iter_first(o))
                 do {
@@ -200,22 +201,22 @@ static st_ret_t _st_mysql_put_guts(st_driver_t drv, const char *type, const char
                      */
                     val = NULL;
                     os_object_iter_get(o, &key, &val, &ot);
-        
+
                     switch(ot) {
                         case os_type_BOOLEAN:
-                            cval = ((int)val != 0) ? strdup("1") : strdup("0");
+                            cval = ((intptr_t)val != 0) ? strdup("1") : strdup("0");
                             break;
-        
+
                         case os_type_INTEGER:
                             cval = (char *) malloc(sizeof(char) * 20);
-                            sprintf(cval, "%d", (int) val);
+                            sprintf(cval, "%" PRIdPTR, (intptr_t) val);
                             break;
-        
+
                         case os_type_STRING:
                             cval = (char *) malloc(sizeof(char) * ((strlen((char *) val) * 2) + 1));
                             mysql_real_escape_string(data->conn, cval, (char *) val, strlen((char *) val));
                             break;
-        
+
                         case os_type_NAD:
                             nad_print((nad_t) val, 0, &xml, &xlen);
                             cval = (char *) malloc(sizeof(char) * ((xlen * 2) + 4));
@@ -224,32 +225,32 @@ static st_ret_t _st_mysql_put_guts(st_driver_t drv, const char *type, const char
                             break;
 
                         case os_type_UNKNOWN:
-                            break;
+                            continue;
                     }
-        
+
                     log_debug(ZONE, "key %s val %s", key, cval);
-        
+
                     MYSQL_SAFE(left, lleft + strlen(key) + 4, lleft);
                     nleft += sprintf(&left[nleft], ", `%s`", key);
-        
+
                     MYSQL_SAFE(right, lright + strlen(cval) + 4, lright);
                     nright += sprintf(&right[nright], ", '%s'", cval);
-        
+
                     free(cval);
                 } while(os_object_iter_next(o));
-    
+
             MYSQL_SAFE(left, lleft + strlen(right) + 2, lleft);
             sprintf(&left[nleft], "%s )", right);
-        
+
             log_debug(ZONE, "prepared sql: %s", left);
-    
+
             if(mysql_query(data->conn, left) != 0) {
                 log_write(drv->st->log, LOG_ERR, "mysql: sql insert failed: %s", mysql_error(data->conn));
                 free(left);
                 free(right);
                 return st_FAILED;
             }
-    
+
         } while(os_iter_next(os));
 
     free(left);
@@ -414,8 +415,8 @@ static st_ret_t _st_mysql_get(st_driver_t drv, const char *type, const char *own
                     os_object_put(o, fields[j].name, val, os_type_STRING);
                     break;
 
-		case os_type_NAD:
-		case os_type_UNKNOWN:
+                default:
+                    /* should not happen */
                     break;
             }
         }
@@ -583,6 +584,8 @@ DLLEXPORT st_ret_t st_init(st_driver_t drv) {
     const char *host, *port, *dbname, *user, *pass;
     MYSQL *conn;
     drvdata_t data;
+    /* enable reconnect */
+    my_bool reconnect= 1;
 
     host = config_get_one(drv->st->config, "storage.mysql.host", 0);
     port = config_get_one(drv->st->config, "storage.mysql.port", 0);
@@ -603,6 +606,7 @@ DLLEXPORT st_ret_t st_init(st_driver_t drv) {
 
     mysql_options(conn, MYSQL_READ_DEFAULT_GROUP, "jabberd");
     mysql_options(conn, MYSQL_SET_CHARSET_NAME, "utf8");
+    mysql_options(conn, MYSQL_OPT_RECONNECT, (void *)&reconnect);
 
     /* connect with CLIENT_INTERACTIVE to get a (possibly) higher timeout value than default */
     if(mysql_real_connect(conn, host, user, pass, dbname, atoi(port), NULL, CLIENT_INTERACTIVE) == NULL) {
@@ -610,9 +614,6 @@ DLLEXPORT st_ret_t st_init(st_driver_t drv) {
         mysql_close(conn);
         return st_FAILED;
     }
-
-    /* Set reconnect flag to 1 (set to 0 by default from mysql 5 on) */
-    conn->reconnect = 1;
 
     data = (drvdata_t) calloc(1, sizeof(struct drvdata_st));
 

@@ -26,6 +26,7 @@
   */
 
 #include "storage.h"
+#include <inttypes.h>
 #include <libpq-fe.h>
 
 /** internal structure, holds our data */
@@ -51,7 +52,7 @@ static size_t _st_pgsql_realloc(char **oblocks, size_t len) {
 #elif defined(_SC_PAGESIZE)
         block_size = sysconf(_SC_PAGESIZE);
 #elif defined(_SC_PAGE_SIZE)
-        block_size = sysconf(_SC_PAGE_SIZE);    
+        block_size = sysconf(_SC_PAGE_SIZE);
 #else
         block_size = FALLBACK_BLOCKSIZE;
 #endif
@@ -204,12 +205,12 @@ static st_ret_t _st_pgsql_put_guts(st_driver_t drv, const char *type, const char
 
                     switch(ot) {
                         case os_type_BOOLEAN:
-                            cval = ((int)val != 0) ? strdup("t") : strdup("f");
+                            cval = ((intptr_t)val != 0) ? strdup("t") : strdup("f");
                             break;
 
                         case os_type_INTEGER:
                             cval = (char *) malloc(sizeof(char) * 20);
-                            sprintf(cval, "%d", (int)val);
+                            sprintf(cval, "%" PRIdPTR, (intptr_t)val);
                             break;
 
                         case os_type_STRING:
@@ -225,7 +226,7 @@ static st_ret_t _st_pgsql_put_guts(st_driver_t drv, const char *type, const char
                             break;
 
                         case os_type_UNKNOWN:
-                            break;
+                            continue;
                     }
 
                     log_debug(ZONE, "key %s val %s", key, cval);
@@ -241,7 +242,7 @@ static st_ret_t _st_pgsql_put_guts(st_driver_t drv, const char *type, const char
 
             PGSQL_SAFE(left, lleft + strlen(right) + 3, lleft);
             sprintf(&left[nleft], "%s );", right);
-    
+
             log_debug(ZONE, "prepared sql: %s", left);
 
             res = PQexec(data->conn, left);
@@ -441,8 +442,8 @@ static st_ret_t _st_pgsql_get(st_driver_t drv, const char *type, const char *own
                     os_object_put(o, fname, val, os_type_STRING);
                     break;
 
-                case os_type_NAD:
-                case os_type_UNKNOWN:
+                default:
+                    /* should not happen */
                     break;
             }
         }
@@ -666,8 +667,21 @@ st_ret_t st_init(st_driver_t drv) {
         log_write(drv->st->log, LOG_ERR, "pgsql: connection to database failed: %s", PQerrorMessage(conn));
 
     if (schema) {
+        PGresult *res;
         snprintf(sql, sizeof(sql), "SET search_path TO \"%s\"", schema);
-        PQexec(conn, sql);
+        res = PQexec(conn, sql);
+
+	if (res) {
+	    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+                log_write(drv->st->log, LOG_ERR, "pgsql: unable to set search path: %s", PQresultErrorMessage(res));
+		PQclear(res);
+		return st_FAILED;
+	    }
+            PQclear(res);
+	} else {
+            log_write(drv->st->log, LOG_ERR, "pgsql: unable to set search path");
+	    return st_FAILED;
+	}
     }
 
     data = (drvdata_t) calloc(1, sizeof(struct drvdata_st));

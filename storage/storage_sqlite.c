@@ -362,39 +362,10 @@ static st_ret_t _st_sqlite_put (st_driver_t drv, const char *type,
 	return st_SUCCESS;
     }
 
-    if (data->txn) {
-
-	res = sqlite3_exec (data->db,
-			    "BEGIN", NULL, NULL,
-			    &err_msg);
-	if (res != SQLITE_OK) {
-	    log_write (drv->st->log, LOG_ERR,
-		       "sqlite: sql transaction begin failed: %s",
-		       err_msg);
-	    sqlite3_free (err_msg);
-	    return st_FAILED;
-	}
-    }
-
     if (_st_sqlite_put_guts (drv, type, owner, os) != st_SUCCESS) {
-	if (data->txn) {
-	    res = sqlite3_exec (data->db, "ROLLBACK",
-				NULL, NULL, NULL);
-	}
 	return st_FAILED;
     }
 
-    if (data->txn) {
-
-	res = sqlite3_exec (data->db, "COMMIT", NULL, NULL, &err_msg);
-	if (res != SQLITE_OK) {
-	    log_write (drv->st->log, LOG_ERR,
-		       "sqlite: sql transaction commit failed: %s",
-		       err_msg);
-	    sqlite3_exec (data->db, "ROLLBACK", NULL, NULL, NULL);
-	    return st_FAILED;
-	}
-    }
     return st_SUCCESS;
 }
 
@@ -628,44 +599,12 @@ static st_ret_t _st_sqlite_replace (st_driver_t drv, const char *type,
     int res;
     char *err_msg = NULL;
 
-    if (data->txn) {
-
-	res = sqlite3_exec (data->db, "BEGIN", NULL, NULL, &err_msg);
-	if (res != SQLITE_OK) {
-	    log_write (drv->st->log, LOG_ERR,
-		       "sqlite: sql transaction begin failed: %s",
-		       err_msg);
-	    sqlite3_free (err_msg);
-	    return st_FAILED;
-	}
-    }
-
     if (_st_sqlite_delete (drv, type, owner, filter) == st_FAILED) {
-	if (data->txn) {
-	    sqlite3_exec (data->db, "ROLLBACK", NULL, NULL, NULL);
-	}
 	return st_FAILED;
     }
 
     if (_st_sqlite_put_guts (drv, type, owner, os) == st_FAILED) {
-	if (data->txn) {
-	    sqlite3_exec (data->db, "ROLLBACK", NULL, NULL, NULL);
-	}
 	return st_FAILED;
-    }
-
-    if (data->txn) {
-
-	res = sqlite3_exec (data->db, "COMMIT", NULL, NULL, &err_msg);
-
-	if (res != SQLITE_OK) {
-	    log_write (drv->st->log, LOG_ERR,
-		       "sqlite: sql transaction commit failed: %s",
-		       err_msg);
-	    sqlite3_exec (data->db, "ROLLBACK", NULL, NULL, NULL);
-
-	    return st_FAILED;
-	}
     }
 
     return st_SUCCESS;
@@ -683,13 +622,17 @@ static void _st_sqlite_free (st_driver_t drv) {
 DLLEXPORT st_ret_t st_init(st_driver_t drv) {
 
     const char *dbname;
+    const char *sql_stmt;
     sqlite3 *db;
     drvdata_t data;
     int ret;
     const char *busy_timeout;
+    char *err_msg = NULL;
 
     dbname = config_get_one (drv->st->config,
 			     "storage.sqlite.dbname", 0);
+    sql_stmt = config_get_one (drv->st->config,
+                             "storage.sqlite.sql", 0);
     if (dbname == NULL) {
 	log_write (drv->st->log, LOG_ERR,
 		   "sqlite: invalid driver config");
@@ -703,17 +646,20 @@ DLLEXPORT st_ret_t st_init(st_driver_t drv) {
 	return st_FAILED;
     }
 
+    if (sql_stmt != NULL) {
+	log_write (drv->st->log, LOG_INFO, "sqlite: %s", sql_stmt);
+    	ret = sqlite3_exec (db, sql_stmt, NULL, NULL, &err_msg);
+	if (ret != SQLITE_OK) {
+	    log_write (drv->st->log, LOG_ERR,
+			"sqlite: %s", err_msg);
+	    sqlite3_free(err_msg);
+	    return st_FAILED;
+	}
+    }
+
     data = (drvdata_t) calloc (1, sizeof (struct drvdata_st));
 
     data->db = db;
-
-    if (config_get_one (drv->st->config,
-			"storage.sqlite.transactions", 0) != NULL) {
-	data->txn = 1;
-    } else {
-	log_write (drv->st->log, LOG_WARNING,
-		   "sqlite: transactions disabled");
-    }
 
     busy_timeout = config_get_one (drv->st->config,
 				   "storage.sqlite.busy-timeout", 0);

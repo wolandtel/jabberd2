@@ -61,6 +61,7 @@ struct acl_s {
     char *what;
     char *from;
     char *to;
+    char *dump;
     int log;
     acl_t next;
 };
@@ -94,6 +95,7 @@ struct router_st {
     const char          *local_secret;
     const char          *local_pemfile;
     const char          *local_private_key_password;
+    const char          *local_ciphers;
 
     /** max file descriptors */
     int                 io_max_fds;

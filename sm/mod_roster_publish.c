@@ -111,33 +111,32 @@ static const char *_roster_publish_get_group_name(sm_t sm, roster_publish_t rp, 
 #endif
 
     if(storage_get(sm->st, "published-roster-groups", groupid, NULL, &os) == st_SUCCESS)
-	{
-		if (os_iter_first(os))
-		{
-	        o = os_iter_object(os);
-    	    os_object_get_str(os, o, "groupname", &str);
-	        if( str ) {
-    	   	    group=strdup(str);
-        	} else {
-            	group=NULL;
-	        }
-    	    os_free(os);
+    {
+        if (os_iter_first(os))
+        {
+            o = os_iter_object(os);
+            if( os_object_get_str(os, o, "groupname", &str) && str ) {
+                group=strdup(str);
+            } else {
+                group=NULL;
+            }
+            os_free(os);
 #ifndef NO_SM_CACHE
-	        if( rp->group_cache_ttl && group ) {
-    	        log_debug(ZONE,"group cache: updating cache value for %s",groupid);
-        	    group_cached = calloc(1, sizeof(struct _roster_publish_group_cache_st));
-            	group_cached->time = time(NULL);
-	            group_cached->groupid = strdup(groupid);
-    	        group_cached->groupname = strdup(group);
-        	    xhash_put(rp->group_cache, group_cached->groupid, group_cached);
-	        }
+            if( rp->group_cache_ttl && group ) {
+                log_debug(ZONE,"group cache: updating cache value for %s",groupid);
+                group_cached = calloc(1, sizeof(struct _roster_publish_group_cache_st));
+                group_cached->time = time(NULL);
+                group_cached->groupid = strdup(groupid);
+                group_cached->groupname = strdup(group);
+                xhash_put(rp->group_cache, group_cached->groupid, group_cached);
+            }
 #endif
-    	    return group;
-		}
-    	os_free(os);
+            return group;
+        }
+        os_free(os);
     }
     
-	return NULL;
+    return NULL;
 }
 
 /* free a single roster item */
@@ -147,7 +146,7 @@ static void _roster_publish_free_walker(xht roster, const char *key, void *val, 
     int i;
 
     jid_free(item->jid);
-    
+
     if(item->name != NULL)
         free((void*)item->name);
 
@@ -192,7 +191,7 @@ static void _roster_publish_save_item(user_t user, item_t item) {
     }
 
     os = os_new();
-    
+
     for(i = 0; i < item->ngroups; i++) {
         o = os_object_new(os);
 

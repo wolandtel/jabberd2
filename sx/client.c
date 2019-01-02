@@ -32,7 +32,7 @@ static void _sx_client_element_start(void *arg, const char *name, const char **a
     i = strlen(uri_STREAMS) + 7;
     if(strlen(name) < i || strncmp(name, uri_STREAMS "|stream", i) != 0 || (name[i] != '\0' && name[i] != '|')) {
         /* throw an error */
-        _sx_gen_error(sxe, SX_ERR_STREAM, "Stream error", "Expected stream start");
+        _sx_gen_error(sxe, SX_ERR_STREAM, "Stream error", "Expected stream open");
         _sx_event(s, event_ERROR, (void *) &sxe);
         _sx_error(s, stream_err_BAD_FORMAT, NULL);
         s->fail = 1;
@@ -119,10 +119,10 @@ void sx_client_init(sx_t s, unsigned int flags, const char *ns, const char *to, 
     if(s->state != state_NONE)
         return;
 
-    _sx_debug(ZONE, "doing client init for sx %d", s->tag);
-
     s->type = type_CLIENT;
     s->flags = flags;
+
+    _sx_debug(ZONE, "doing client init for sx %d %s", s->tag, _sx_flags(s));
 
     if(ns != NULL) s->ns = strdup(ns);
     if(to != NULL) s->req_to = strdup(to);

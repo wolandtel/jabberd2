@@ -6,9 +6,11 @@ AC_INIT([jabberd2], [2.x.dev], [jabberd2@lists.xiaoka.com])
 AC_CONFIG_SRCDIR([sx/sx.h])
 AC_CONFIG_HEADER([config.h])
 AM_INIT_AUTOMAKE
+AM_SILENT_RULES([yes])
 
 # Checks for programs.
 AC_PROG_CC
+AC_PROG_CC_STDC
 AM_PROG_CC_C_O
 AC_PROG_CPP
 AC_PROG_INSTALL
@@ -22,13 +24,6 @@ AC_PROG_LIBTOOL
 if test "x-$lt_cv_dlopen_libs" != "x-" ; then
     LIBS="$LIBS $lt_cv_dlopen_libs"
 fi
-
-# check for optimisation level
-AC_MSG_CHECKING([CFLAGS optimization level])
-[if echo $CFLAGS | grep '.*-O[3s].*' >/dev/null 2>&1; then]
-    AC_MSG_ERROR([maximum allowed optimization level is -O2])
-fi
-AC_MSG_RESULT([fine])
 
 # extra paths
 AC_ARG_WITH([extra_include_path], AC_HELP_STRING([--with-extra-include-path],
@@ -78,6 +73,10 @@ AC_ARG_ENABLE(mio_debug, AC_HELP_STRING([--enable-mio-debug], [enable managed IO
 if test "x-$want_mio_debug" = "x-yes" ; then
     AC_DEFINE(MIO_DEBUG,1,[Define to 1 if you want to enable managed IO debug output.])
 fi
+
+# Colorized build output
+AX_CHECK_COMPILE_FLAG([-fdiagnostics-color], [CFLAGS="${CFLAGS} -fdiagnostics-color"],
+    [AX_CHECK_COMPILE_FLAG([-fcolor-diagnostics], [CFLAGS="${CFLAGS} -fcolor-diagnostics"])])
 
 # Two-step header checking.  First check for headers which don't
 # require any other headers.
@@ -397,39 +396,15 @@ fi
 #
 # optional libs
 
-# OpenSSL >= 1.0.1
-AC_ARG_ENABLE(ssl, AC_HELP_STRING([--enable-ssl[=DIR]], [enable SSL/TLS support (yes)]), want_ssl=$enableval, want_ssl=yes)
-if test "x-$want_ssl" != "x-no" ; then
-    if test "x-$want_ssl" != "x-yes" ; then
-        CFLAGS="$CFLAGS -I$enableval/include" 
-        CPPFLAGS="$CPPFLAGS -I$enableval/include" 
-        LDFLAGS="$LDFLAGS -L$enableval/lib"
-    fi
-    AC_CHECK_HEADERS(openssl/crypto.h)
-    if test "x-$ac_cv_header_openssl_crypto_h" = "x-yes" ; then
-        AC_CHECK_LIB(crypto, CRYPTO_lock)
-    fi
-    if test "x-$ac_cv_lib_crypto_CRYPTO_lock" = "x-yes" ; then
-        AC_CHECK_HEADERS(openssl/ssl.h)
-    fi
-    if test "x-$ac_cv_header_openssl_ssl_h" = "x-yes" ; then
-        AC_CHECK_LIB(ssl, SSL_connect)
-    fi
-    if test "x-$ac_cv_lib_ssl_SSL_connect" = "x-yes" ; then
-        AC_MSG_CHECKING(for OpenSSL version >= 1.0.1)
-        AC_RUN_IFELSE([AC_LANG_PROGRAM([[#include <openssl/crypto.h>]],
-                                       [[return !(SSLeay() >= 0x010001000L)]])],
-                      [AC_MSG_RESULT(yes)
-                       have_openssl=yes],
-                      AC_MSG_RESULT(no))
-    fi
-    if test "x-$have_openssl" != "x-yes" ; then
-        AC_MSG_ERROR([OpenSSL >= 1.0.1 not found])
-    fi
-
+# OpenSSL >= 1.0.2
+AC_ARG_ENABLE(ssl, AC_HELP_STRING([--enable-ssl], [enable SSL/TLS support (yes)]), want_ssl=$enableval, want_ssl=yes)
+AS_IF([test "x$want_ssl" = "xyes"], [
+	PKG_CHECK_MODULES(SSL, openssl >= 1.0.2,
+		have_ssl="yes"
     AC_DEFINE(HAVE_SSL,1,[Define to 1 if OpenSSL is available.])
-fi
-AM_CONDITIONAL(HAVE_SSL, [test "x-$have_openssl" = "x-yes"])
+	)
+])
+AM_CONDITIONAL(HAVE_SSL, [test "x$have_ssl" = "xyes"])
 
 dnl Check for & handle argument to --with-zlib.
 _cppflags=$CPPFLAGS
@@ -775,6 +750,19 @@ if test "x-$want_fs" = "x-yes" ; then
 fi
 AM_CONDITIONAL(STORAGE_FS, [test "x-$want_fs" = "x-yes"])
 
+# WebSocket support
+AC_ARG_ENABLE(websocket, AC_HELP_STRING([--enable-websocket], [enable WebSocket support on C2S port (no)]),
+              want_websocket=$enableval, want_websocket=no)
+if test "x-$want_websocket" = "x-yes" ; then
+    AC_CHECK_LIB([http_parser], [http_parser_init])
+    if test "x-$ac_cv_lib_http_parser_http_parser_init" != "x-yes" ; then
+        AC_MSG_ERROR([http_parser not found])
+    else
+        AC_DEFINE(USE_WEBSOCKET,1,[Define to 1 if you want to have WebSocket support in C2S.])
+    fi
+fi
+AM_CONDITIONAL(USE_WEBSOCKET, [test "x-$want_websocket" = "x-yes"])
+
 #
 # IPv6 checks
 AC_DEFUN([_IP6_INCLUDES],[[
@@ -826,20 +814,20 @@ fi
 # mio backend selection
 
 AC_ARG_ENABLE(mio, AC_HELP_STRING([--enable-mio=BACKENDS], [use one of BACKENDS to drive MIO (select poll epoll kqueue)]),
-              mio_check=$enableval, mio_check='kqueue epoll poll select')
+              mio_check=$enableval, mio_check='select poll epoll kqueue')
 
 mio_backend=''
 for backend in $mio_check ; do
     case x-$backend in
 
-		x-kqueue)
-		AC_CHECK_HEADERS(sys/event.h)
-		if test "x-$ac_cv_header_sys_event_h" = "x-yes" ; then
-			AC_CHECK_FUNCS(kqueue,[
-				mio_backend='kqueue'
-				AC_DEFINE(MIO_KQUEUE,1,[Define to 1 if you want to use 'kqueue' for non-blocking I/O.])])
-		fi
-		;;
+        x-kqueue)
+        AC_CHECK_HEADERS(sys/event.h)
+        if test "x-$ac_cv_header_sys_event_h" = "x-yes" ; then
+            AC_CHECK_FUNCS(kqueue,[
+                mio_backend='kqueue'
+                AC_DEFINE(MIO_KQUEUE,1,[Define to 1 if you want to use 'kqueue' for non-blocking I/O.])])
+        fi
+        ;;
 
         x-epoll)
             AC_CHECK_HEADERS(sys/epoll.h)
@@ -884,6 +872,8 @@ done
 
 if test "x-$mio_backend" = "x-" ; then
     AC_MSG_ERROR([no MIO backend available out of: $mio_check])
+else
+    AC_MSG_NOTICE([using MIO backend: $mio_backend])
 fi
 
 # use libc function substitution library?

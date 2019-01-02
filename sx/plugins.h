@@ -31,6 +31,7 @@
 #define SX_COMPRESS_WRAPPER     (1<<4)
 #define SX_COMPRESS_OFFER       (1<<5)
 
+#define SX_WEBSOCKET_WRAPPER    (1<<6)    /** indicates stream over WebSocket connection */
 
 /** magic numbers, so plugins can find each other */
 #define SX_SSL_MAGIC        (0x01)
@@ -65,7 +66,7 @@ extern "C" {
 JABBERD2_API int                         sx_ssl_init(sx_env_t env, sx_plugin_t p, va_list args);
 
 /** add cert function */
-JABBERD2_API int                         sx_ssl_server_addcert(sx_plugin_t p, const char *name, const char *pemfile, const char *cachain, int mode, const char *private_key_password);
+JABBERD2_API int                         sx_ssl_server_addcert(sx_plugin_t p, const char *name, const char *pemfile, const char *cachain, int mode, const char *private_key_password, const char *ciphers);
 
 /** trigger for client starttls */
 JABBERD2_API int                         sx_ssl_client_starttls(sx_plugin_t p, sx_t s, const char *pemfile, const char *private_key_password);
@@ -155,8 +156,37 @@ typedef struct _sx_compress_conn_st {
 
 /* Stanza Acknowledgements plugin */
 /** init function */
-JABBERD2_API int                         sx_ack_init(sx_env_t env, sx_plugin_t p, va_list args);
+JABBERD2_API int sx_ack_init(sx_env_t env, sx_plugin_t p, va_list args);
 
+/* websocket wrapper plugin */
+#ifdef USE_WEBSOCKET
+#include <http_parser.h>
+#include <util/util.h>
+
+JABBERD2_API int sx_websocket_init(sx_env_t env, sx_plugin_t p, va_list args);
+
+/** websocket state */
+typedef enum {
+    websocket_PRE,
+    websocket_HEADERS,      /* parsing HTTP headers */
+    websocket_ACTIVE,       /* active websocket connection */
+    websocket_CLOSING       /* shutdown in progress */
+} _sx_websocket_state_t;
+
+/** a single conn */
+typedef struct _sx_websocket_conn_st {
+    http_parser             parser;
+    _sx_websocket_state_t   state;
+    int                     header_value;
+    pool_t                  p;
+    spool                   field, value;
+    xht                     headers;
+    void                    *frame;
+    unsigned int            opcode;
+    char                    *buf;
+    size_t                  buf_len;
+} *_sx_websocket_conn_t;
+#endif
 
 #ifdef __cplusplus
 }

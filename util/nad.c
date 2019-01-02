@@ -131,6 +131,8 @@ nad_t nad_new(void)
     nad->scope = -1;
 
 #ifdef NAD_DEBUG
+    if(_nad_alloc_tracked == NULL) _nad_alloc_tracked = xhash_new(501);
+    if(_nad_free_tracked == NULL) _nad_free_tracked = xhash_new(501);
     {
     char loc[24];
     snprintf(loc, sizeof(loc), "%x", (int) nad);
@@ -201,7 +203,7 @@ void nad_free(nad_t nad)
 }
 
 /** locate the next elem at a given depth with an optional matching name */
-int nad_find_elem(nad_t nad, int elem, int ns, const char *name, int depth)
+int nad_find_elem(nad_t nad, unsigned int elem, int ns, const char *name, int depth)
 {
     int my_ns;
     int lname = 0;
@@ -232,7 +234,7 @@ int nad_find_elem(nad_t nad, int elem, int ns, const char *name, int depth)
 }
 
 /** get a matching attr on this elem, both name and optional val */
-int nad_find_attr(nad_t nad, int elem, int ns, const char *name, const char *val)
+int nad_find_attr(nad_t nad, unsigned int elem, int ns, const char *name, const char *val)
 {
     int attr, my_ns;
     int lname, lval = 0;
@@ -259,7 +261,7 @@ int nad_find_attr(nad_t nad, int elem, int ns, const char *name, const char *val
 }
 
 /** get a matching ns on this elem, both uri and optional prefix */
-int nad_find_namespace(nad_t nad, int elem, const char *uri, const char *prefix)
+int nad_find_namespace(nad_t nad, unsigned int elem, const char *uri, const char *prefix)
 {
     int check, ns;
 
@@ -313,10 +315,13 @@ int nad_find_scoped_namespace(nad_t nad, const char *uri, const char *prefix)
  *          "name/name" for a sub child (recurses)
  *          "?attrib" to match the first tag with that attrib defined
  *          "?attrib=value" to match the first tag with that attrib and value
+ *          "!attrib" to match the first tag without that attrib defined
+ *          "!attrib=value" to match the first tag without that attrib and value
  *          or any combination: "name/name/?attrib", etc
  */
-int nad_find_elem_path(nad_t nad, int elem, int ns, const char *name) {
-    char *str, *slash, *qmark, *equals;
+int nad_find_elem_path(nad_t nad, unsigned int elem, int ns, const char *name) {
+    char *str, *slash, *qmark, *excl, *equals;
+    int el;
 
     _nad_ptr_check(__func__, nad);
 
@@ -324,12 +329,14 @@ int nad_find_elem_path(nad_t nad, int elem, int ns, const char *name) {
     if(elem >= nad->ecur || name == NULL) return -1;
 
     /* if it's plain name just search children */
-    if(strstr(name, "/") == NULL && strstr(name,"?") == NULL)
+    if(strstr(name, "/") == NULL && strstr(name,"?") == NULL && strstr(name,"!") == NULL)
         return nad_find_elem(nad, elem, ns, name, 1);
 
+    el = elem;
     str = strdup(name);
     slash = strstr(str, "/");
     qmark = strstr(str, "?");
+    excl  = strstr(str, "!");
     equals = strstr(str, "=");
 
     /* no / in element name part */
@@ -344,35 +351,60 @@ int nad_find_elem_path(nad_t nad, int elem, int ns, const char *name) {
             equals++;
         }
 
-        for(elem = nad_find_elem(nad, elem, ns, str, 1); ; elem = nad_find_elem(nad, elem, ns, str, 0)) {
-            if(elem < 0) break;
+        for(el = nad_find_elem(nad, el, ns, str, 1); ; el = nad_find_elem(nad, el, ns, str, 0)) {
+            if(el < 0) break;
             if(strcmp(qmark, "xmlns") == 0) {
-                if(nad_find_namespace(nad, elem, equals, NULL) >= 0) break;
+                if(nad_find_namespace(nad, el, equals, NULL) >= 0) break;
             }
             else {
-                if(nad_find_attr(nad, elem, ns, qmark, equals) >= 0) break;
+                if(nad_find_attr(nad, el, ns, qmark, equals) >= 0) break;
             }
         }
 
         free(str);
-        return elem;
+        return el;
+    }
+
+    if(excl != NULL && (slash == NULL || excl < slash))
+    { /* of type !attrib */
+
+        *excl = '\0';
+        excl++;
+        if(equals != NULL)
+        {
+            *equals = '\0';
+            equals++;
+        }
+
+        for(el = nad_find_elem(nad, el, ns, str, 1); ; el = nad_find_elem(nad, el, ns, str, 0)) {
+            if(el < 0) break;
+            if(strcmp(excl, "xmlns") == 0) {
+                if(nad_find_namespace(nad, el, equals, NULL) < 0) break;
+            }
+            else {
+                if(nad_find_attr(nad, el, ns, excl, equals) < 0) break;
+            }
+        }
+
+        free(str);
+        return el;
     }
 
     /* there is a / in element name part - need to recurse */
     *slash = '\0';
     ++slash;
 
-    for(elem = nad_find_elem(nad, elem, ns, str, 1); ; elem = nad_find_elem(nad, elem, ns, str, 0)) {
-        if(elem < 0) break;
-        if((elem = nad_find_elem_path(nad, elem, ns, slash)) >= 0) break;
+    for(el = nad_find_elem(nad, el, ns, str, 1); ; el = nad_find_elem(nad, el, ns, str, 0)) {
+        if(el < 0) break;
+        if((el = nad_find_elem_path(nad, el, ns, slash)) >= 0) break;
     }
 
     free(str);
-    return elem;
+    return el;
 }
 
 /** create, update, or zap any matching attr on this elem */
-void nad_set_attr(nad_t nad, int elem, int ns, const char *name, const char *val, int vallen)
+void nad_set_attr(nad_t nad, unsigned int elem, int ns, const char *name, const char *val, int vallen)
 {
     int attr;
 
@@ -402,7 +434,7 @@ void nad_set_attr(nad_t nad, int elem, int ns, const char *name, const char *val
 }
 
 /** shove in a new child elem after the given one */
-int nad_insert_elem(nad_t nad, int parent, int ns, const char *name, const char *cdata)
+int nad_insert_elem(nad_t nad, unsigned int parent, int ns, const char *name, const char *cdata)
 {
     int elem;
 
@@ -449,7 +481,7 @@ int nad_insert_elem(nad_t nad, int parent, int ns, const char *name, const char 
 }
 
 /** remove an element (and its subelements) */
-void nad_drop_elem(nad_t nad, int elem) {
+void nad_drop_elem(nad_t nad, unsigned int elem) {
     int next, cur;
 
     _nad_ptr_check(__func__, nad);
@@ -472,7 +504,7 @@ void nad_drop_elem(nad_t nad, int elem) {
 }
 
 /** wrap an element with another element */
-void nad_wrap_elem(nad_t nad, int elem, int ns, const char *name)
+void nad_wrap_elem(nad_t nad, unsigned int elem, int ns, const char *name)
 {
     int cur;
 
@@ -486,11 +518,6 @@ void nad_wrap_elem(nad_t nad, int elem, int ns, const char *name)
     memmove(&nad->elems[elem + 1], &nad->elems[elem], (nad->ecur - elem) * sizeof(struct nad_elem_st));
     nad->ecur++;
 
-    /* relink parents on moved elements */
-    for(cur = elem + 1; cur < nad->ecur; cur++)
-        if(nad->elems[cur].parent > elem + 1)
-            nad->elems[cur].parent++;
-
     /* set up req'd parts of new elem */
     nad->elems[elem].lname = strlen(name);
     nad->elems[elem].iname = _nad_cdata(nad,name,nad->elems[elem].lname);
@@ -499,13 +526,18 @@ void nad_wrap_elem(nad_t nad, int elem, int ns, const char *name)
     nad->elems[elem].itail = nad->elems[elem].ltail = 0;
     nad->elems[elem].icdata = nad->elems[elem].lcdata = 0;
     nad->elems[elem].my_ns = ns;
+    /* hook up the parent */
+    nad->elems[elem].parent = nad->elems[elem + 1].parent;
+
+    /* relink parents on moved elements */
+    for(cur = elem + 1; cur < nad->ecur; cur++)
+        if(nad->elems[cur].parent >= elem)
+            nad->elems[cur].parent++;
 
     /* raise the bar on all the children */
     nad->elems[elem+1].depth++;
     for(cur = elem + 2; cur < nad->ecur && nad->elems[cur].depth > nad->elems[elem].depth; cur++) nad->elems[cur].depth++;
 
-    /* hook up the parent */
-    nad->elems[elem].parent = nad->elems[elem + 1].parent;
 }
 
 /** insert part of a nad into another nad */
@@ -585,8 +617,14 @@ int nad_insert_nad(nad_t dest, int delem, nad_t src, int selem) {
                 } else
                     dest->elems[first + i].my_ns = nad_add_namespace(dest, uri, NULL);
 
-                if(uri != buri) free(uri);
-                if(prefix != bprefix) free(prefix);
+                if(uri != buri) {
+                    free(uri);
+                    uri = buri;
+                }
+                if(prefix != bprefix) {
+                    free(prefix);
+                    prefix = bprefix;
+                }
             }
         }
 
@@ -613,8 +651,14 @@ int nad_insert_nad(nad_t dest, int delem, nad_t src, int selem) {
                 } else
                     nad_add_namespace(dest, uri, NULL);
 
-                if(uri != buri) free(uri);
-                if(prefix != bprefix) free(prefix);
+                if(uri != buri) {
+                    free(uri);
+                    uri = buri;
+                }
+                if(prefix != bprefix) {
+                    free(prefix);
+                    prefix = bprefix;
+                }
             }
         }
 
@@ -767,7 +811,7 @@ int nad_add_namespace(nad_t nad, const char *uri, const char *prefix)
 }
 
 /** declare a namespace on an already-existing element */
-int nad_append_namespace(nad_t nad, int elem, const char *uri, const char *prefix) {
+int nad_append_namespace(nad_t nad, unsigned int elem, const char *uri, const char *prefix) {
     int ns;
 
     _nad_ptr_check(__func__, nad);
@@ -905,7 +949,7 @@ static void _nad_escape(nad_t nad, int data, int len, int flag)
 }
 
 /** internal recursive printing function */
-static int _nad_lp0(nad_t nad, int elem)
+static int _nad_lp0(nad_t nad, unsigned int elem)
 {
     int attr;
     int ndepth;
@@ -1161,7 +1205,7 @@ static int _nad_lp0(nad_t nad, int elem)
     return elem;
 }
 
-void nad_print(nad_t nad, int elem, const char **xml, int *len)
+void nad_print(nad_t nad, unsigned int elem, const char **xml, int *len)
 {
     int ixml = nad->ccur;
 

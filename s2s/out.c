@@ -182,6 +182,8 @@ void _out_dns_mark_bad(conn_t out) {
             bad = (dnsres_t) calloc(1, sizeof(struct dnsres_st));
             bad->key = ipport;
             xhash_put(out->s2s->dns_bad, ipport, bad);
+        } else {
+            free(ipport);
         }
         bad->expiry = time(NULL) + out->s2s->dns_bad_timeout;
     }
@@ -415,6 +417,10 @@ int out_route(s2s_t s2s, const char *route, int routelen, conn_t *out, int allow
     from_len = c - route;
     c++;
     c_len = routelen - (c - route);
+    if (c_len > 1023) {
+        /* domain name too long */
+        return -1;
+    }
     dkey = strndup(c, c_len);
 
     log_debug(ZONE, "trying to find connection for '%s'", dkey);
@@ -538,14 +544,24 @@ int out_route(s2s_t s2s, const char *route, int routelen, conn_t *out, int allow
             for (i = 0; i < s2s->origin_nips; i++) {
                 // only bother with mio_connect if the src and dst IPs are of the same type
                 if ((ip_is_v6 && (strchr(s2s->origin_ips[i], ':') != NULL)) ||          // both are IPv6
-                            (! ip_is_v6 && (strchr(s2s->origin_ips[i], ':') == NULL)))  // both are IPv4
-                    (*out)->fd = mio_connect(s2s->mio, port, ip, s2s->origin_ips[i], _out_mio_callback, (void *) *out);
+                            (! ip_is_v6 && (strchr(s2s->origin_ips[i], ':') == NULL))) {// both are IPv4
 
-                if ((*out)->fd != NULL) break;
+                    (*out)->fd = mio_connect(s2s->mio, port, ip, s2s->origin_ips[i], _out_mio_callback, (void *) *out);
+                    if ((*out)->fd != NULL) break;
+                    log_write(s2s->log, LOG_NOTICE, "[%d] [%s, port=%d] [origin: %s] mio_connect error: %s (%d)", -1, (*out)->ip, (*out)->port, s2s->origin_ips[i], MIO_STRERROR(MIO_ERROR), MIO_ERROR);
+                }
+            }
+
+            /* fallback to connecting using local.ip */
+            if ((*out)->fd == NULL) {
+                (*out)->fd = mio_connect(s2s->mio, port, ip, s2s->local_ip, _out_mio_callback, (void *) *out);
+                if ((*out)->fd == NULL) {
+                    log_write(s2s->log, LOG_NOTICE, "[%d] [%s, port=%d] [local: %s] mio_connect error: %s (%d)", -1, (*out)->ip, (*out)->port, s2s->local_ip, MIO_STRERROR(MIO_ERROR), MIO_ERROR);
+                }
             }
 
             if ((*out)->fd == NULL) {
-                log_write(s2s->log, LOG_NOTICE, "[%d] [%s, port=%d] mio_connect error: %s (%d)", -1, (*out)->ip, (*out)->port, MIO_STRERROR(MIO_ERROR), MIO_ERROR);
+                log_write(s2s->log, LOG_NOTICE, "[%d] [%s, port=%d] unable to connect host", -1, (*out)->ip, (*out)->port);
 
                 _out_dns_mark_bad(*out);
 
@@ -618,13 +634,10 @@ int out_packet(s2s_t s2s, pkt_t pkt) {
     if (s2s->enable_whitelist > 0 &&
             (pkt->to->domain != NULL) &&
             (s2s_domain_in_whitelist(s2s, pkt->to->domain) == 0)) {
-        log_write(s2s->log, LOG_NOTICE, "sending a packet to domain not in the whitelist, dropping it");
-        if (pkt->to != NULL)
-            jid_free(pkt->to);
-        if (pkt->from != NULL)
-            jid_free(pkt->from);
-        if (pkt->nad != NULL)
-            nad_free(pkt->nad);
+        log_write(s2s->log, LOG_NOTICE, "sending a packet to domain not in the whitelist %s, dropping it", pkt->to->domain);
+        jid_free(pkt->to);
+        jid_free(pkt->from);
+        nad_free(pkt->nad);
         free(pkt);
 
         return 0;
@@ -1197,6 +1210,7 @@ void dns_resolve_domain(s2s_t s2s, dnscache_t dns) {
         /* shortcut resolution failure */
         query->expiry = time(NULL) + 99999999;
         out_resolve(query->s2s, dns->name, query->results, query->expiry);
+        free(query);
         return;
     }
     query->name = name;
@@ -1664,7 +1678,8 @@ static void _out_result(conn_t out, nad_t nad) {
 
     /* key is valid */
     if(nad_find_attr(nad, 0, -1, "type", "valid") >= 0 && xhash_get(out->states, rkey) == (void*) conn_INPROGRESS) {
-        log_write(out->s2s->log, LOG_NOTICE, "[%d] [%s, port=%d] outgoing route '%s' is now valid%s%s", out->fd->fd, out->ip, out->port, rkey, (out->s->flags & SX_SSL_WRAPPER) ? ", TLS negotiated" : "", out->s->compressed ? ", ZLIB compression enabled" : "");
+        log_write(out->s2s->log, LOG_NOTICE, "[%d] [%s, port=%d] outgoing route '%s' is now valid %s",
+                  out->fd->fd, out->ip, out->port, rkey, _sx_flags(out->s));
 
         xhash_put(out->states, pstrdup(xhash_pool(out->states), rkey), (void *) conn_VALID);    /* !!! small leak here */
 
@@ -1753,7 +1768,8 @@ static void _out_verify(conn_t out, nad_t nad) {
     attr = nad_find_attr(nad, 0, -1, "type", "valid");
     if(attr >= 0 && xhash_get(in->states, rkey) == (void*) conn_INPROGRESS) {
         xhash_put(in->states, pstrdup(xhash_pool(in->states), rkey), (void *) conn_VALID);
-        log_write(in->s2s->log, LOG_NOTICE, "[%d] [%s, port=%d] incoming route '%s' is now valid%s%s", in->fd->fd, in->ip, in->port, rkey, (in->s->flags & SX_SSL_WRAPPER) ? ", TLS negotiated" : "", in->s->compressed ? ", ZLIB compression enabled" : "");
+        log_write(in->s2s->log, LOG_NOTICE, "[%d] [%s, port=%d] incoming route '%s' is now valid %s",
+                  in->fd->fd, in->ip, in->port, rkey, _sx_flags(in->s));
         valid = 1;
     } else {
         log_write(in->s2s->log, LOG_NOTICE, "[%d] [%s, port=%d] incoming route '%s' is now invalid", in->fd->fd, in->ip, in->port, rkey);

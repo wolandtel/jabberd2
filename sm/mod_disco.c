@@ -95,7 +95,7 @@ static void _disco_unify_lists(disco_t d) {
 
     if(d->un != NULL)
         xhash_free(d->un);
-    
+
     d->un = xhash_new(101);
 
     /* dynamic overrieds static */
@@ -150,7 +150,7 @@ static pkt_t _disco_info_result(module_t mod, disco_t d) {
     if(xhash_iter_first(mod->mm->sm->features))
         do {
             xhash_iter_get(mod->mm->sm->features, &key, &keylen, NULL);
-            
+
             el = nad_append_elem(pkt->nad, ns, "feature", 3);
             nad_set_attr(pkt->nad, el, -1, "var", (char *) key, keylen);
         } while(xhash_iter_next(mod->mm->sm->features));
@@ -233,7 +233,7 @@ static mod_ret_t _disco_pkt_sm_populate(mod_instance_t mi, pkt_t pkt)
 {
     module_t mod = mi->mod;
     disco_t d = (disco_t) mod->private;
-    int ns, qelem, elem, attr;
+    int ns, query, elem, attr;
     service_t svc;
 
     /* it has to come from the service itself - don't want any old user messing with the table */
@@ -244,9 +244,11 @@ static mod_ret_t _disco_pkt_sm_populate(mod_instance_t mi, pkt_t pkt)
     }
 
     ns = nad_find_scoped_namespace(pkt->nad, uri_DISCO_INFO, NULL);
-    qelem = nad_find_elem(pkt->nad, 1, ns, "query", 1);
-    
-    elem = nad_find_elem(pkt->nad, qelem, ns, "identity", 1);
+    query = nad_find_elem(pkt->nad, 1, ns, "query", 1);
+    if(query < 0)
+        return -stanza_err_BAD_REQUEST;
+
+    elem = nad_find_elem(pkt->nad, query, ns, "identity", 1);
     if(elem < 0)
         return -stanza_err_BAD_REQUEST;
 
@@ -296,7 +298,7 @@ static mod_ret_t _disco_pkt_sm_populate(mod_instance_t mi, pkt_t pkt)
         strcpy(svc->type, "unknown");
 
     /* features */
-    elem = nad_find_elem(pkt->nad, qelem, -1, "feature", 1);
+    elem = nad_find_elem(pkt->nad, query, -1, "feature", 1);
     while(elem >= 0)
     {
         attr = nad_find_attr(pkt->nad, elem, -1, "var", NULL);
@@ -315,27 +317,6 @@ static mod_ret_t _disco_pkt_sm_populate(mod_instance_t mi, pkt_t pkt)
     _disco_generate_packets(mod, d);
 
     pkt_free(pkt);
-
-    return mod_HANDLED;
-}
-
-/** respond to user quering its JID */
-static mod_ret_t _disco_in_sess_result(mod_instance_t mi, sess_t sess, pkt_t pkt)
-{
-    /* it has to have no to address or self bare jid */
-    if(pkt->to != NULL && strcmp(jid_user(sess->jid), jid_full(pkt->to)))
-    {
-        return mod_PASS;
-    }
-
-    /* identity */
-    nad_append_elem(pkt->nad, -1, "identity", 3);
-    nad_append_attr(pkt->nad, -1, "category", "account");
-    nad_append_attr(pkt->nad, -1, "type", "registered");
-
-    /* tell them */
-    nad_set_attr(pkt->nad, 1, -1, "type", "result", 6);
-    pkt_sess(pkt_tofrom(pkt), sess);
 
     return mod_HANDLED;
 }
@@ -367,7 +348,7 @@ static mod_ret_t _disco_pkt_sm(mod_instance_t mi, pkt_t pkt) {
     disco_t d = (disco_t) mod->private;
     pkt_t result;
     int node, ns;
-    
+
     /* disco info results go to a seperate function */
     if(pkt->type == pkt_IQ_RESULT && pkt->ns == ns_DISCO_INFO)
         return _disco_pkt_sm_populate(mi, pkt);
@@ -492,15 +473,40 @@ static mod_ret_t _disco_pkt_sm(mod_instance_t mi, pkt_t pkt) {
     return -stanza_err_ITEM_NOT_FOUND;
 }
 
+/** response to quering user JID */
+static void _disco_user_result(pkt_t pkt, user_t user)
+{
+    /* identity */
+    nad_append_elem(pkt->nad, -1, "identity", 3);
+    nad_append_attr(pkt->nad, -1, "category", "account");
+    /* if user is logged in (has session) yet never logged in (no active time)
+       it is certainly an anonymous user */
+    log_debug(ZONE, "%s: top %p active %d", jid_full(user->jid), user->sessions, user->active);
+    nad_append_attr(pkt->nad, -1, "type", (user->sessions && !user->active) ? "anonymous" : "registered");
+
+    /* tell them */
+    nad_set_attr(pkt->nad, 1, -1, "type", "result", 6);
+}
+
 /** legacy support for agents requests from sessions */
 static mod_ret_t _disco_in_sess(mod_instance_t mi, sess_t sess, pkt_t pkt) {
     module_t mod = mi->mod;
     disco_t d = (disco_t) mod->private;
     pkt_t result;
 
-    /* disco info requests go to a seperate function */
+    /* disco info requests */
     if(pkt->type == pkt_IQ && pkt->ns == ns_DISCO_INFO)
-        return _disco_in_sess_result(mi, sess, pkt);
+    {
+        /* it has to have no to address or self bare jid */
+        if(pkt->to != NULL && strcmp(jid_user(sess->jid), jid_full(pkt->to)))
+        {
+            return mod_PASS;
+        }
+
+        _disco_user_result(pkt, sess->user);
+        pkt_sess(pkt_tofrom(pkt), sess);
+        return mod_HANDLED;
+    }
 
     /* we want agents gets */
     if(pkt->type != pkt_IQ || pkt->ns != ns_AGENTS || pkt->to != NULL)
@@ -523,6 +529,19 @@ static mod_ret_t _disco_in_sess(mod_instance_t mi, sess_t sess, pkt_t pkt) {
     pkt_sess(result, sess);
 
     return mod_HANDLED;
+}
+
+static mod_ret_t _disco_pkt_user(mod_instance_t mi, user_t user, pkt_t pkt) {
+    /* disco info requests */
+    if(pkt->type == pkt_IQ && pkt->ns == ns_DISCO_INFO)
+    {
+        _disco_user_result(pkt, user);
+        pkt_router(pkt_tofrom(pkt));
+        return mod_HANDLED;
+    }
+
+    /* pass everything else */
+    return mod_PASS;
 }
 
 /** update the table for component changes */
@@ -573,7 +592,7 @@ static mod_ret_t _disco_pkt_router(mod_instance_t mi, pkt_t pkt)
         _disco_unify_lists(d);
         _disco_generate_packets(mod, d);
     }
-    
+
     /* done */
     pkt_free(pkt);
 
@@ -636,13 +655,14 @@ DLLEXPORT int module_init(mod_instance_t mi, const char *arg)
 
     if(d->agents)
         log_debug(ZONE, "agents compat enabled");
-    
+
     /* our data */
     mod->private = (void *) d;
-    
+
     /* our handlers */
     mod->pkt_sm = _disco_pkt_sm;
     mod->in_sess = _disco_in_sess;
+    mod->pkt_user = _disco_pkt_user;
     mod->pkt_router = _disco_pkt_router;
     mod->free = _disco_free;
 

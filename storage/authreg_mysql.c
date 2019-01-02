@@ -23,6 +23,8 @@
 #define _XOPEN_SOURCE 500
 #include "c2s.h"
 #include <mysql.h>
+#include <stdlib.h>
+#include <openssl/rand.h>
 
 /* Windows does not have the crypt() function, let's take DES_crypt from OpenSSL instead */
 #if defined(HAVE_OPENSSL_CRYPTO_H) && defined(_WIN32)
@@ -93,8 +95,7 @@ static void calc_a1hash(const char *username, const char *realm, const char *pas
 static void bcrypt_hash(const char *password, int cost, char* hash)
 {
     char salt[16];
-    if(!RAND_bytes(salt, 16))
-        ; //we've got a problem
+    if(!RAND_bytes(salt, 16)) abort(); //we've got a problem
 
     char* gen = bcrypt_gensalt("$2y$", cost, salt, 16);
     strcpy(hash, bcrypt(password, gen));
@@ -110,7 +111,7 @@ static int bcrypt_verify(const char *password, const char* hash)
 
     int status = 0;
     int i = 0;
-    for(i; i < strlen(ret); i++)
+    for(; i < strlen(ret); i++)
         status |= (ret[i] ^ hash[i]);
     return status != 0;
 }
@@ -133,7 +134,7 @@ static MYSQL_RES *_ar_mysql_get_user_tuple(authreg_t ar, const char *username, c
     char iuser[MYSQL_LU+1], irealm[MYSQL_LR+1];
     char euser[MYSQL_LU*2+1], erealm[MYSQL_LR*2+1], sql[1024 + MYSQL_LU*2 + MYSQL_LR*2 + 1];  /* query(1024) + euser + erealm + \0(1) */
     MYSQL_RES *res;
-    
+
     if(mysql_ping(conn) != 0) {
         log_write(ar->c2s->log, LOG_ERR, "mysql: connection to database lost");
         return NULL;
@@ -250,7 +251,7 @@ static int _ar_mysql_set_password(authreg_t ar, sess_t sess, const char *usernam
         bcrypt_hash(password, ctx->bcrypt_cost, password);
     }
 #endif
-    
+
     password[256]= '\0';
 
     mysql_real_escape_string(conn, euser, iuser, strlen(iuser));
@@ -317,7 +318,8 @@ static int _ar_mysql_check_password(authreg_t ar, sess_t sess, const char *usern
         if(ret == 0) {
             if(bcrypt_needs_rehash(ctx->bcrypt_cost, db_pw_value)) {
                 char tmp[257];
-                strcpy(tmp, password);
+                strncpy(tmp, password, 256);
+                tmp[256] = 0;
                 _ar_mysql_set_password(ar, sess, username, realm, tmp);
             }
         }
@@ -434,13 +436,13 @@ static char * _ar_mysql_check_template( const char * template, const char * type
     char c;
 
     /* check that it's 1K or less */
-    if( strlen( template ) > 1024 ) return "longer than 1024 characters";  
+    if( strlen( template ) > 1024 ) return "longer than 1024 characters";
 
     /* count the parameter placeholders */
     while( pScan < strlen( template ) )
     {
       if( template[ pScan++ ] != '%' ) continue;
-      
+
       c = template[ pScan++ ];
       if( c == '%' ) continue; /* ignore escaped precentages */
       if( c == types[ pType ] )
@@ -457,7 +459,7 @@ static char * _ar_mysql_check_template( const char * template, const char * type
     if( pType < strlen( types ) )
       return "contained too few placeholders";
     else
-      return 0;  
+      return 0;
 }
 
 /* Ensure the SQL template is less than 1K long and contains the */
@@ -484,6 +486,9 @@ DLLEXPORT int ar_init(authreg_t ar) {
     int strlentur; /* string length of table, user, and realm strings */
     MYSQL *conn;
     mysqlcontext_t mysqlcontext;
+    int fail = 0;
+    /* enable reconnect */
+    my_bool reconnect= 1;
 
     /* configure the database context with field names and SQL statements */
     mysqlcontext = (mysqlcontext_t) malloc( sizeof( struct mysqlcontext_st ) );
@@ -493,16 +498,16 @@ DLLEXPORT int ar_init(authreg_t ar) {
     /* determine our field names and table name */
     username = _ar_mysql_param( ar->c2s->config
                , "authreg.mysql.field.username"
-               , "username" ); 
+               , "username" );
     realm = _ar_mysql_param( ar->c2s->config
                , "authreg.mysql.field.realm"
-               , "realm" ); 
+               , "realm" );
     mysqlcontext->field_password = _ar_mysql_param( ar->c2s->config
                , "authreg.mysql.field.password"
-               , "password" ); 
+               , "password" );
     table = _ar_mysql_param( ar->c2s->config
                , "authreg.mysql.table"
-               , "authreg" ); 
+               , "authreg" );
 
     /* get encryption type used in DB */
     if (config_get_one(ar->c2s->config, "authreg.mysql.password_type.plaintext", 0)) {
@@ -517,7 +522,7 @@ DLLEXPORT int ar_init(authreg_t ar) {
     } else if (config_get_one(ar->c2s->config, "authreg.mysql.password_type.bcrypt", 0)) {
         mysqlcontext->password_type = MPC_BCRYPT;
     int cost;
-    if(cost = j_atoi(config_get_attr(ar->c2s->config, "authreg.mysql.password_type.bcrypt", 0, "cost"), 0))
+    if((cost = j_atoi(config_get_attr(ar->c2s->config, "authreg.mysql.password_type.bcrypt", 0, "cost"), 0)))
     {
         if(cost < 4 || cost > 31) {
             log_write(ar->c2s->log, LOG_ERR, "bcrypt cost has to be higher than 3 and lower than 32.");
@@ -539,45 +544,45 @@ DLLEXPORT int ar_init(authreg_t ar) {
     strlentur = strlen( table ) + strlen( username) + strlen( realm );  /* avoid repetition */
 
     template = "INSERT INTO `%s` ( `%s`, `%s` ) VALUES ( '%%s', '%%s' )";
-    create = malloc( strlen( template ) + strlentur ); 
+    create = malloc( strlen( template ) + strlentur );
     sprintf( create, template, table, username, realm );
 
     template = "SELECT `%s` FROM `%s` WHERE `%s` = '%%s' AND `%s` = '%%s'";
     select = malloc( strlen( template )
                      + strlen( mysqlcontext->field_password )
-                     + strlentur ); 
+                     + strlentur );
     sprintf( select, template
              , mysqlcontext->field_password
              , table, username, realm );
 
     template = "UPDATE `%s` SET `%s` = '%%s' WHERE `%s` = '%%s' AND `%s` = '%%s'";
-    setpassword = malloc( strlen( template ) + strlentur + strlen( mysqlcontext->field_password ) ); 
+    setpassword = malloc( strlen( template ) + strlentur + strlen( mysqlcontext->field_password ) );
     sprintf( setpassword, template, table, mysqlcontext->field_password, username, realm );
 
     template = "DELETE FROM `%s` WHERE `%s` = '%%s' AND `%s` = '%%s'";
-    delete = malloc( strlen( template ) + strlentur ); 
+    delete = malloc( strlen( template ) + strlentur );
     sprintf( delete, template, table, username, realm );
 
     /* allow the default SQL statements to be overridden; also verify the statements format and length */
     mysqlcontext->sql_create = strdup(_ar_mysql_param( ar->c2s->config
                , "authreg.mysql.sql.create"
                , create ));
-    if( _ar_mysql_check_sql( ar, mysqlcontext->sql_create, "ss" ) != 0 ) return 1;
+    if( _ar_mysql_check_sql( ar, mysqlcontext->sql_create, "ss" ) != 0 ) fail = 1;
 
     mysqlcontext->sql_select = strdup(_ar_mysql_param( ar->c2s->config
                , "authreg.mysql.sql.select"
                , select ));
-    if( _ar_mysql_check_sql( ar, mysqlcontext->sql_select, "ss" ) != 0 ) return 1;
+    if( _ar_mysql_check_sql( ar, mysqlcontext->sql_select, "ss" ) != 0 ) fail = 1;
 
     mysqlcontext->sql_setpassword = strdup(_ar_mysql_param( ar->c2s->config
                , "authreg.mysql.sql.setpassword"
                , setpassword ));
-    if( _ar_mysql_check_sql( ar, mysqlcontext->sql_setpassword, "sss" ) != 0 ) return 1;
+    if( _ar_mysql_check_sql( ar, mysqlcontext->sql_setpassword, "sss" ) != 0 ) fail = 1;
 
     mysqlcontext->sql_delete = strdup(_ar_mysql_param( ar->c2s->config
                , "authreg.mysql.sql.delete"
                , delete ));
-    if( _ar_mysql_check_sql( ar, mysqlcontext->sql_delete, "ss" ) != 0 ) return 1;
+    if( _ar_mysql_check_sql( ar, mysqlcontext->sql_delete, "ss" ) != 0 ) fail = 1;
 
     /* echo our configuration to debug */
     log_debug( ZONE, "SQL to create account: %s", mysqlcontext->sql_create );
@@ -589,6 +594,8 @@ DLLEXPORT int ar_init(authreg_t ar) {
     free(select);
     free(setpassword);
     free(delete);
+
+    if (fail) return fail;
 
     host = config_get_one(ar->c2s->config, "authreg.mysql.host", 0);
     port = config_get_one(ar->c2s->config, "authreg.mysql.port", 0);
@@ -613,6 +620,7 @@ DLLEXPORT int ar_init(authreg_t ar) {
 
     mysql_options(conn, MYSQL_READ_DEFAULT_GROUP, "jabberd");
     mysql_options(conn, MYSQL_SET_CHARSET_NAME, "utf8");
+    mysql_options(conn, MYSQL_OPT_RECONNECT, (void *)&reconnect);
 
     /* connect with CLIENT_INTERACTIVE to get a (possibly) higher timeout value than default */
     if(mysql_real_connect(conn, host, user, pass, dbname, atoi(port), NULL, CLIENT_INTERACTIVE) == NULL) {
@@ -621,9 +629,6 @@ DLLEXPORT int ar_init(authreg_t ar) {
     }
 
     mysql_query(conn, "SET NAMES 'utf8'");
-
-    /* Set reconnect flag to 1 (set to 0 by default from mysql 5 on) */
-    conn->reconnect = 1;
 
     ar->user_exists = _ar_mysql_user_exists;
     if (MPC_PLAIN == mysqlcontext->password_type) {

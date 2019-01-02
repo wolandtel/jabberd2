@@ -1,4 +1,13 @@
 #include <check.h>
+#if (CHECK_MAJOR_VERSION == 0 && (CHECK_MINOR_VERSION < 9 || (CHECK_MINOR_VERSION == 9 && CHECK_MICRO_VERSION < 10)))
+# define ck_assert_ptr_eq(X,Y) do {                 \
+        void* _ck_x = (X);                  \
+        void* _ck_y = (Y);                  \
+        ck_assert_msg(_ck_x == _ck_y,               \
+                  "Assertion '"#X"=="#Y"' failed: "#X"==%p, "#Y"==%p", \
+                  _ck_x, _ck_y);                \
+    } while (0)
+#endif
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -17,7 +26,7 @@ START_TEST (check_config_parse)
     config_t c = config_new();
     fail_unless (c != 0);
 
-    int r = config_load_with_id(c, "test_config.xml", "test_id");
+    int r = config_load_with_id(c, SRCDIR "/test_config.xml", "test_id");
     ck_assert_int_eq (0, r); // Do not place config_load into ck_assert_xxxx  othewise it is called twice !!!
 
     ck_assert_str_eq ("test_id", config_get_one(c, "id", 0));
@@ -40,7 +49,7 @@ START_TEST (check_config_expand)
 {
     config_t c = config_new();
     fail_unless (c != 0);
-    int r = config_load(c, "test_config.xml");
+    int r = config_load(c, SRCDIR "/test_config.xml");
     
     ck_assert_int_eq (0, r);
 
@@ -106,7 +115,7 @@ START_TEST (check_config_missing)
 {
     config_t c = config_new();
     fail_unless (c != 0);
-    int load_result = config_load(c, "no_file.xml");
+    int load_result = config_load(c, SRCDIR "/no_file.xml");
     ck_assert_int_eq (1, load_result);
     config_free(c);
 }
@@ -116,7 +125,7 @@ START_TEST (check_config_empty)
 {
     config_t c = config_new();
     fail_unless (c != 0);
-    int r = config_load(c, "empty.xml");
+    int r = config_load(c, SRCDIR "/empty.xml");
     ck_assert_int_eq (0, r);
     config_free(c);
 }
@@ -126,7 +135,7 @@ START_TEST (check_config_include)
 {
     config_t c = config_new();
     fail_unless (c != 0);
-    int r = config_load(c, "test_include.xml");
+    int r = config_load(c, SRCDIR "/test_include.xml");
     ck_assert_int_eq (0, r);
     config_free(c);
 }
@@ -136,7 +145,7 @@ START_TEST (check_config_fail_002)
 {
     config_t c = config_new();
     fail_unless (c != 0);
-    int r = config_load(c, "failed_to_load_002.xml");
+    int r = config_load(c, SRCDIR "/failed_to_load_002.xml");
     ck_assert_int_eq (1, r);
     config_free(c);
 }
@@ -146,7 +155,7 @@ START_TEST (check_config_fail_003)
 {
     config_t c = config_new();
     fail_unless (c != 0);
-    int r = config_load(c, "failed_to_load_003.xml");
+    int r = config_load(c, SRCDIR "/failed_to_load_003.xml");
     ck_assert_int_eq (1, r);
     config_free(c);
 }
@@ -156,7 +165,7 @@ START_TEST (check_config_fail_004)
 {
     config_t c = config_new();
     fail_unless (c != 0);
-    int r = config_load(c, "failed_to_load_004.xml");
+    int r = config_load(c, SRCDIR "/failed_to_load_004.xml");
     ck_assert_int_eq (1, r);
     config_free(c);
 }

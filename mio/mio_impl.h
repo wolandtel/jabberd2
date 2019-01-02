@@ -38,11 +38,11 @@ JABBERD2_API char *mio_strerror(int code)
 #endif /* _WIN32 */
 
 /** our internal wrapper around a fd */
-typedef enum { 
-    type_CLOSED = 0x00, 
-    type_NORMAL = 0x01, 
-    type_LISTEN = 0x02, 
-    type_CONNECT = 0x10, 
+typedef enum {
+    type_CLOSED = 0x00,
+    type_NORMAL = 0x01,
+    type_LISTEN = 0x02,
+    type_CONNECT = 0x10,
     type_CONNECT_READ = 0x11,
     type_CONNECT_WRITE = 0x12
 } mio_type_t;
@@ -110,10 +110,16 @@ static mio_fd_t _mio_setup_fd(mio_t m, int fd, mio_handler_t app, void *arg)
 #if defined(HAVE_FCNTL)
     flags = fcntl(fd, F_GETFL);
     flags |= O_NONBLOCK;
-    fcntl(fd, F_SETFL, flags);
+    if(fcntl(fd, F_SETFL, flags) == -1) {
+        MIO_FREE_FD(m, mio_fd);
+        return NULL;
+    }
 #elif defined(HAVE_IOCTL)
     flags = 1;
-    ioctl(fd, FIONBIO, &flags);
+    if(ioctl(fd, FIONBIO, &flags) == -1) {
+        MIO_FREE_FD(m, mio_fd);
+        return NULL;
+    }
 #endif
 
     return mio_fd;
@@ -159,7 +165,7 @@ static void _mio_accept(mio_t m, mio_fd_t fd)
 
     /* pull a socket off the accept queue and check */
     newfd = accept(fd->fd, (struct sockaddr*)&serv_addr, &addrlen);
-    if(newfd <= 0) return;
+    if(newfd < 0) return;
     if(addrlen <= 0) {
         close(newfd);
         return;
@@ -243,8 +249,8 @@ static void _mio_run(mio_t m, int timeout)
         mio_fd_t fd = MIO_ITERATOR_FD(m,iter);
         if (fd == NULL) continue;
 
-        /* skip already dead slots */ 
-        if(FD(m,fd)->type == type_CLOSED) continue; 
+        /* skip already dead slots */
+        if(FD(m,fd)->type == type_CLOSED) continue;
 
         /* new conns on a listen socket */
         if(FD(m,fd)->type == type_LISTEN && MIO_CAN_READ(m,iter))
@@ -279,7 +285,7 @@ static void _mio_run(mio_t m, int timeout)
 
     deferred:
         /* deferred closing fd
-         * one of previous actions might change the state of fd */ 
+         * one of previous actions might change the state of fd */
         if(FD(m,fd)->type == type_CLOSED)
         {
             MIO_FREE_FD(m, fd);
@@ -342,10 +348,14 @@ static mio_fd_t _mio_listen(mio_t m, int port, const char *sourceip, mio_handler
 
     if(sa.ss_family == 0)
         sa.ss_family = AF_INET;
-    
+
     /* attempt to create a socket */
     if((fd = socket(sa.ss_family,SOCK_STREAM,0)) < 0) return NULL;
-    if(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&flag, sizeof(flag)) < 0) return NULL;
+    if(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&flag, sizeof(flag)) < 0)
+    {
+        close(fd);
+        return NULL;
+    }
 
     /* set up and bind address info */
     j_inet_setport(&sa, port);
@@ -391,12 +401,12 @@ static mio_fd_t _mio_connect(mio_t m, int port, const char *hostip, const char *
 
     /* convert the hostip */
     if(j_inet_pton(hostip, &sa)<=0) {
-        MIO_SETERROR(EFAULT);
+        MIO_SETERROR(EAFNOSUPPORT);
         return NULL;
     }
 
     if(!sa.ss_family) sa.ss_family = AF_INET;
-    
+
     /* attempt to create a socket */
     if((fd = socket(sa.ss_family,SOCK_STREAM,0)) < 0) return NULL;
 
@@ -404,7 +414,8 @@ static mio_fd_t _mio_connect(mio_t m, int port, const char *hostip, const char *
     if (srcip != NULL) {
         /* convert the srcip */
         if(j_inet_pton(srcip, &src)<=0) {
-            MIO_SETERROR(EFAULT);
+            MIO_SETERROR(EAFNOSUPPORT);
+            close(fd);
             return NULL;
         }
         if(!src.ss_family) src.ss_family = AF_INET;
@@ -419,10 +430,16 @@ static mio_fd_t _mio_connect(mio_t m, int port, const char *hostip, const char *
 #if defined(HAVE_FCNTL)
     flags = fcntl(fd, F_GETFL);
     flags |= O_NONBLOCK;
-    fcntl(fd, F_SETFL, flags);
+    if(fcntl(fd, F_SETFL, flags) == -1) {
+        close(fd);
+        return NULL;
+    }
 #elif defined(HAVE_IOCTL)
     flags = 1;
-    ioctl(fd, FIONBIO, &flags);
+    if(ioctl(fd, FIONBIO, &flags) == -1) {
+        close(fd);
+        return NULL;
+    }
 #endif
 
     /* set up address info */

@@ -21,6 +21,8 @@
 #include "c2s.h"
 
 #include <stringprep.h>
+#include <string.h>
+#include <ctype.h>
 
 static sig_atomic_t c2s_shutdown = 0;
 sig_atomic_t c2s_lost_router = 0;
@@ -109,6 +111,7 @@ static void _c2s_config_expand(c2s_t c2s)
     c2s->router_cachain = config_get_one(c2s->config, "router.cachain", 0);
 
     c2s->router_private_key_password = config_get_one(c2s->config, "router.private_key_password", 0);
+    c2s->router_ciphers = config_get_one(c2s->config, "router.ciphers", 0);
 
     c2s->retry_init = j_atoi(config_get_one(c2s->config, "router.retry.init", 0), 3);
     c2s->retry_lost = j_atoi(config_get_one(c2s->config, "router.retry.lost", 0), 3);
@@ -149,9 +152,13 @@ static void _c2s_config_expand(c2s_t c2s)
 
     c2s->local_verify_mode = j_atoi(config_get_one(c2s->config, "local.verify-mode", 0), 0);
 
+    c2s->local_ciphers = config_get_one(c2s->config, "local.ciphers", 0);
+
     c2s->local_ssl_port = j_atoi(config_get_one(c2s->config, "local.ssl-port", 0), 0);
 
     c2s->http_forward = config_get_one(c2s->config, "local.httpforward", 0);
+
+    c2s->websocket = (config_get(c2s->config, "io.websocket") != NULL);
 
     c2s->io_max_fds = j_atoi(config_get_one(c2s->config, "io.max_fds", 0), 1024);
 
@@ -185,7 +192,7 @@ static void _c2s_config_expand(c2s_t c2s)
             // Note that to_address should be RFC 3986 compliant
             sr->to_address = to_address;
             sr->to_port = to_port;
-            
+
             xhash_put(c2s->stream_redirects, pstrdup(xhash_pool(c2s->stream_redirects), req_domain), sr);
         }
     }
@@ -326,16 +333,18 @@ static void _c2s_hosts_expand(c2s_t c2s)
 
         host->host_private_key_password = j_attr((const char **) elem->attrs[i], "private-key-password");
 
+        host->host_ciphers = j_attr((const char **) elem->attrs[i], "ciphers");
+
 #ifdef HAVE_SSL
         if(host->host_pemfile != NULL) {
             if(c2s->sx_ssl == NULL) {
-                c2s->sx_ssl = sx_env_plugin(c2s->sx_env, sx_ssl_init, host->realm, host->host_pemfile, host->host_cachain, host->host_verify_mode, host->host_private_key_password);
+                c2s->sx_ssl = sx_env_plugin(c2s->sx_env, sx_ssl_init, host->realm, host->host_pemfile, host->host_cachain, host->host_verify_mode, host->host_private_key_password, host->host_ciphers);
                 if(c2s->sx_ssl == NULL) {
                     log_write(c2s->log, LOG_ERR, "failed to load %s SSL pemfile", host->realm);
                     host->host_pemfile = NULL;
                 }
             } else {
-                if(sx_ssl_server_addcert(c2s->sx_ssl, host->realm, host->host_pemfile, host->host_cachain, host->host_verify_mode, host->host_private_key_password) != 0) {
+                if(sx_ssl_server_addcert(c2s->sx_ssl, host->realm, host->host_pemfile, host->host_cachain, host->host_verify_mode, host->host_private_key_password, host->host_ciphers) != 0) {
                     log_write(c2s->log, LOG_ERR, "failed to load %s SSL pemfile", host->realm);
                     host->host_pemfile = NULL;
                 }
@@ -344,6 +353,15 @@ static void _c2s_hosts_expand(c2s_t c2s)
 #endif
 
         host->host_require_starttls = (j_attr((const char **) elem->attrs[i], "require-starttls") != NULL);
+
+        host->ar_module_name = j_attr((const char **) elem->attrs[i], "authreg-module");
+        if(host->ar_module_name) {
+            if((host->ar = authreg_init(c2s, host->ar_module_name)) == NULL) {
+                log_write(c2s->log, LOG_NOTICE, "failed to load %s authreg module - using default", host->realm);
+                host->ar = c2s->ar;
+            }
+        } else
+            host->ar = c2s->ar;
 
         host->ar_register_enable = (j_attr((const char **) elem->attrs[i], "register-enable") != NULL);
         host->ar_register_oob = j_attr((const char **) elem->attrs[i], "register-oob");
@@ -374,8 +392,10 @@ static void _c2s_hosts_expand(c2s_t c2s)
             xhash_put(c2s->hosts, pstrdup(xhash_pool(c2s->hosts), id), host);
         }
 
-        log_write(c2s->log, LOG_NOTICE, "[%s] configured; realm=%s, registration %s, using PEM:%s",
-                  id, (host->realm != NULL ? host->realm : "no realm set"), (host->ar_register_enable ? "enabled" : "disabled"),
+        log_write(c2s->log, LOG_NOTICE, "[%s] configured; realm=%s, authreg=%s, registration %s, using PEM:%s",
+                  id, (host->realm != NULL ? host->realm : "no realm set"),
+                  (host->ar_module_name ? host->ar_module_name : c2s->ar_module_name),
+                  (host->ar_register_enable ? "enabled" : "disabled"),
                   (host->host_pemfile ? host->host_pemfile : "Default"));
     }
 }
@@ -408,6 +428,7 @@ static int _c2s_sx_sasl_callback(int cb, void *arg, void **res, sx_t s, void *cb
     int i, r;
     sess_t sess;
     char skey[44];
+    host_t host;
 
     /* init static jid */
     jid_static(&jid,&jid_buf);
@@ -429,7 +450,6 @@ static int _c2s_sx_sasl_callback(int cb, void *arg, void **res, sx_t s, void *cb
                 my_realm = "";
 
             else {
-                host_t host;
                 /* get host for request */
                 host = xhash_get(c2s->hosts, s->req_to);
                 if(host == NULL) {
@@ -456,8 +476,8 @@ static int _c2s_sx_sasl_callback(int cb, void *arg, void **res, sx_t s, void *cb
 
             log_debug(ZONE, "sx sasl callback: get pass (authnid=%s, realm=%s)", creds->authnid, creds->realm);
 
-            if(c2s->ar->get_password && (c2s->ar->get_password)(
-                        c2s->ar, sess, (char *)creds->authnid, (creds->realm != NULL) ? (char *)creds->realm: "", buf) == 0) {
+            if(sess->host->ar->get_password && (sess->host->ar->get_password)(
+                        sess->host->ar, sess, (char *)creds->authnid, (creds->realm != NULL) ? (char *)creds->realm: "", buf) == 0) {
                 *res = buf;
                 return sx_sasl_ret_OK;
             }
@@ -470,16 +490,16 @@ static int _c2s_sx_sasl_callback(int cb, void *arg, void **res, sx_t s, void *cb
 
             log_debug(ZONE, "sx sasl callback: check pass (authnid=%s, realm=%s)", creds->authnid, creds->realm);
 
-            if(c2s->ar->check_password != NULL) {
-                if ((c2s->ar->check_password)(
-                            c2s->ar, sess, (char *)creds->authnid, (creds->realm != NULL) ? (char *)creds->realm : "", (char *)creds->pass) == 0)
+            if(sess->host->ar->check_password != NULL) {
+                if ((sess->host->ar->check_password)(
+                            sess->host->ar, sess, (char *)creds->authnid, (creds->realm != NULL) ? (char *)creds->realm : "", (char *)creds->pass) == 0)
                     return sx_sasl_ret_OK;
                 else
                     return sx_sasl_ret_FAIL;
             }
 
-            if(c2s->ar->get_password != NULL) {
-                if ((c2s->ar->get_password)(c2s->ar, sess, (char *)creds->authnid, (creds->realm != NULL) ? (char *)creds->realm : "", buf) != 0)
+            if(sess->host->ar->get_password != NULL) {
+                if ((sess->host->ar->get_password)(sess->host->ar, sess, (char *)creds->authnid, (creds->realm != NULL) ? (char *)creds->realm : "", buf) != 0)
                     return sx_sasl_ret_FAIL;
 
                 if (strcmp(creds->pass, buf)==0)
@@ -510,12 +530,12 @@ static int _c2s_sx_sasl_callback(int cb, void *arg, void **res, sx_t s, void *cb
                 return sx_sasl_ret_FAIL;
 
             /* and user has right to authorize as */
-            if (c2s->ar->user_authz_allowed) {
-                if (c2s->ar->user_authz_allowed(c2s->ar, sess, (char *)creds->authnid, (char *)creds->realm, (char *)creds->authzid))
+            if (sess->host->ar->user_authz_allowed) {
+                if (sess->host->ar->user_authz_allowed(sess->host->ar, sess, (char *)creds->authnid, (char *)creds->realm, (char *)creds->authzid))
                         return sx_sasl_ret_OK;
             } else {
                 if (strcmp(creds->authnid, jid.node) == 0 &&
-                    (c2s->ar->user_exists)(c2s->ar, sess, jid.node, jid.domain))
+                    (sess->host->ar->user_exists)(sess->host->ar, sess, jid.node, jid.domain))
                     return sx_sasl_ret_OK;
             }
 
@@ -538,23 +558,28 @@ static int _c2s_sx_sasl_callback(int cb, void *arg, void **res, sx_t s, void *cb
         case sx_sasl_cb_CHECK_MECH:
             mech = (char *)arg;
 
-            i=0;
-            while(i<sizeof(mechbuf) && mech[i]!='\0') {
-                mechbuf[i]=tolower(mech[i]);
-                i++;
+            strncpy(mechbuf, mech, sizeof(mechbuf));
+            mechbuf[sizeof(mechbuf)-1]='\0';
+            for(i = 0; mechbuf[i]; i++) mechbuf[i] = tolower(mechbuf[i]);
+
+            log_debug(ZONE, "sx sasl callback: check mech (mech=%s)", mechbuf);
+
+            /* get host for request */
+            host = xhash_get(c2s->hosts, s->req_to);
+            if(host == NULL) {
+                log_write(c2s->log, LOG_WARNING, "SASL callback for non-existing host: %s", s->req_to);
+                return sx_sasl_ret_FAIL;
             }
-            mechbuf[i]='\0';
 
             /* Determine if our configuration will let us use this mechanism.
              * We support different mechanisms for both SSL and normal use */
-
             if (strcmp(mechbuf, "digest-md5") == 0) {
                 /* digest-md5 requires that our authreg support get_password */
-                if (c2s->ar->get_password == NULL)
+                if (host->ar->get_password == NULL)
                     return sx_sasl_ret_FAIL;
             } else if (strcmp(mechbuf, "plain") == 0) {
                 /* plain requires either get_password or check_password */
-                if (c2s->ar->get_password == NULL && c2s->ar->check_password == NULL)
+                if (host->ar->get_password == NULL && host->ar->check_password == NULL)
                     return sx_sasl_ret_FAIL;
             }
 
@@ -597,7 +622,9 @@ static void _c2s_time_checks(c2s_t c2s) {
             xhv.sess_val = &sess;
             xhash_iter_get(c2s->sessions, NULL, NULL, xhv.val);
 
-            if(c2s->io_check_idle > 0 && sess->s && now > sess->last_activity + c2s->io_check_idle) {
+            if(!sess->s) continue;
+
+            if(c2s->io_check_idle > 0 && now > sess->last_activity + c2s->io_check_idle) {
                 log_write(c2s->log, LOG_NOTICE, "[%d] [%s, port=%d] timed out", sess->fd->fd, sess->ip, sess->port);
 
                 sx_error(sess->s, stream_err_HOST_GONE, "connection timed out");
@@ -620,6 +647,11 @@ static void _c2s_time_checks(c2s_t c2s) {
             }
 
         } while(xhash_iter_next(c2s->sessions));
+}
+
+static void _c2s_ar_free(const char *module, int modulelen, void *val, void *arg) {
+    authreg_t ar = (authreg_t) val;
+    authreg_free(ar);
 }
 
 JABBER_MAIN("jabberd2c2s", "Jabber 2 C2S", "Jabber Open Source Server: Client to Server", "jabberd2router\0")
@@ -720,17 +752,15 @@ JABBER_MAIN("jabberd2c2s", "Jabber 2 C2S", "Jabber Open Source Server: Client to
         return 2;
     }
 
-    c2s->stream_redirects = xhash_new(523);
+    c2s->stream_redirects = xhash_new(11);
 
     _c2s_config_expand(c2s);
 
     c2s->log = log_new(c2s->log_type, c2s->log_ident, c2s->log_facility);
-    log_write(c2s->log, LOG_NOTICE, "starting up");
 
-    _c2s_pidfile(c2s);
-
+    c2s->ar_modules = xhash_new(5);
     if(c2s->ar_module_name == NULL) {
-        log_write(c2s->log, LOG_NOTICE, "no authreg module specified in config file");
+        log_write(c2s->log, LOG_NOTICE, "no default authreg module specified in config file");
     }
     else if((c2s->ar = authreg_init(c2s, c2s->ar_module_name)) == NULL) {
         access_free(c2s->access);
@@ -739,6 +769,10 @@ JABBER_MAIN("jabberd2c2s", "Jabber 2 C2S", "Jabber Open Source Server: Client to
         free(c2s);
         exit(1);
     }
+
+    log_write(c2s->log, LOG_NOTICE, "starting up");
+
+    _c2s_pidfile(c2s);
 
     c2s->sessions = xhash_new(1023);
 
@@ -753,7 +787,7 @@ JABBER_MAIN("jabberd2c2s", "Jabber 2 C2S", "Jabber Open Source Server: Client to
 #ifdef HAVE_SSL
     /* get the ssl context up and running */
     if(c2s->local_pemfile != NULL) {
-        c2s->sx_ssl = sx_env_plugin(c2s->sx_env, sx_ssl_init, NULL, c2s->local_pemfile, c2s->local_cachain, c2s->local_verify_mode, c2s->local_private_key_password);
+        c2s->sx_ssl = sx_env_plugin(c2s->sx_env, sx_ssl_init, NULL, c2s->local_pemfile, c2s->local_cachain, c2s->local_verify_mode, c2s->local_private_key_password, c2s->local_ciphers);
         if(c2s->sx_ssl == NULL) {
             log_write(c2s->log, LOG_ERR, "failed to load local SSL pemfile, SSL will not be available to clients");
             c2s->local_pemfile = NULL;
@@ -762,7 +796,7 @@ JABBER_MAIN("jabberd2c2s", "Jabber 2 C2S", "Jabber Open Source Server: Client to
 
     /* try and get something online, so at least we can encrypt to the router */
     if(c2s->sx_ssl == NULL && c2s->router_pemfile != NULL) {
-        c2s->sx_ssl = sx_env_plugin(c2s->sx_env, sx_ssl_init, NULL, c2s->router_pemfile, c2s->router_cachain, NULL, c2s->router_private_key_password);
+        c2s->sx_ssl = sx_env_plugin(c2s->sx_env, sx_ssl_init, NULL, c2s->router_pemfile, c2s->router_cachain, NULL, c2s->router_private_key_password, c2s->router_ciphers);
         if(c2s->sx_ssl == NULL) {
             log_write(c2s->log, LOG_ERR, "failed to load router SSL pemfile, channel to router will not be SSL encrypted");
             c2s->router_pemfile = NULL;
@@ -770,10 +804,25 @@ JABBER_MAIN("jabberd2c2s", "Jabber 2 C2S", "Jabber Open Source Server: Client to
     }
 #endif
 
+#ifdef USE_WEBSOCKET
+    /* possibly wrap in websocket */
+    if(c2s->websocket) {
+        sx_env_plugin(c2s->sx_env, sx_websocket_init, c2s->http_forward);
+    }
+#else
+    if(c2s->websocket) {
+        log_write(c2s->log, LOG_ERR, "websocket support not built-in - not enabling");
+    }
+    if(c2s->http_forward) {
+        log_write(c2s->log, LOG_ERR, "httpforward available only with websocket support built-in");
+    }
+#endif
+
 #ifdef HAVE_LIBZ
     /* get compression up and running */
-    if(c2s->compression)
+    if(c2s->compression) {
         sx_env_plugin(c2s->sx_env, sx_compress_init);
+    }
 #endif
 
     /* get stanza ack up */
@@ -829,7 +878,7 @@ JABBER_MAIN("jabberd2c2s", "Jabber 2 C2S", "Jabber Open Source Server: Client to
             conf = config_new();
             if (conf && config_load(conf, config_file) == 0) {
                 xhash_free(c2s->stream_redirects);
-                c2s->stream_redirects = xhash_new(523);
+                c2s->stream_redirects = xhash_new(11);
 
                 char *req_domain, *to_address, *to_port;
                 config_elem_t elem;
@@ -858,7 +907,7 @@ JABBER_MAIN("jabberd2c2s", "Jabber 2 C2S", "Jabber Open Source Server: Client to
                         // Note that to_address should be RFC 3986 compliant
                         sr->to_address = to_address;
                         sr->to_port = to_port;
-                        
+
                         xhash_put(c2s->stream_redirects, pstrdup(xhash_pool(c2s->stream_redirects), req_domain), sr);
                     }
                 }
@@ -994,7 +1043,8 @@ JABBER_MAIN("jabberd2c2s", "Jabber 2 C2S", "Jabber Open Source Server: Client to
 
     xhash_free(c2s->sessions);
 
-    authreg_free(c2s->ar);
+    xhash_walk(c2s->ar_modules, _c2s_ar_free, NULL);
+    xhash_free(c2s->ar_modules);
 
     xhash_free(c2s->conn_rates);
 
