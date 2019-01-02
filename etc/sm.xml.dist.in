@@ -712,6 +712,9 @@
         <!--
         <override-names/>
         -->
+        <!--
+        <override-groups/>
+        -->
         <!-- when mapped-groups is on (<map-groups/> is uncommented), the actual
              group names for published contacts are read from
              published-roster-groups storage type, which may be set

@@ -207,32 +207,32 @@ static void _roster_publish_save_item(user_t user, item_t item) {
 /** load item groups from database */
 static void _roster_publish_groups (roster_publish_t roster_publish, user_t user, item_t item, os_t os, os_object_t o)
 {
-	int gcount, i;
-	char token[10], *str;
-	const char *group;
-	
-	os_object_get_int(os, o, "groupCount", &gcount);
-	log_debug(ZONE, "adding %s to %d groups", jid_full(item->jid), gcount);
-	for (i = 0; i < gcount; i++)
-	{
-		sprintf(token, "group%d", i);
-		os_object_get_str(os, o, token, &str);
-		
-		if (roster_publish->mappedgroups)
-			group = _roster_publish_get_group_name(user->sm, roster_publish, str); // don't forget to free group — Nahuya?!
-		else if (str)
-			group = strdup(str);
-		else
-			group = NULL;
-		
-		if (group)
-		{
-			log_debug(ZONE, "adding %s to group '%s'", jid_full(item->jid), group);
-			item->groups = realloc(item->groups, sizeof(char *) * (item->ngroups + 1));
-			item->groups[item->ngroups] = group;
-			item->ngroups++;
-		}
-	}
+    int gcount, i;
+    char token[10], *str;
+    const char *group;
+    
+    os_object_get_int(os, o, "groupCount", &gcount);
+    log_debug(ZONE, "adding %s to %d groups", jid_full(item->jid), gcount);
+    for (i = 0; i < gcount; i++)
+    {
+        sprintf(token, "group%d", i);
+        os_object_get_str(os, o, token, &str);
+        
+        if (roster_publish->mappedgroups)
+            group = _roster_publish_get_group_name(user->sm, roster_publish, str); // don't forget to free group — Nahuya?!
+        else if (str)
+            group = strdup(str);
+        else
+            group = NULL;
+        
+        if (group)
+        {
+            log_debug(ZONE, "adding %s to group '%s'", jid_full(item->jid), group);
+            item->groups = realloc(item->groups, sizeof(char *) * (item->ngroups + 1));
+            item->groups[item->ngroups] = group;
+            item->ngroups++;
+        }
+    }
 }
 
 /** publish the roster from the database */
@@ -323,27 +323,27 @@ static int _roster_publish_user_load(mod_instance_t mi, user_t user) {
                                     active_cached->time = time(NULL);
                                 }
 #endif
-								userinsm = 0;
+                                userinsm = 0;
                                 if (storage_get(user->sm->st, "active", jid_user(jid), NULL, &os_active) == st_SUCCESS)
-								{
-                                	if (os_iter_first(os_active))
-									{
+                                {
+                                    if (os_iter_first(os_active))
+                                    {
 #ifndef NO_SM_CACHE
-                                    	if( roster_publish->active_cache_ttl ) {
-                                        	o_active = os_iter_object(os_active);
-                                        	os_object_get_time(os_active, o_active, "time", &active_cached->active);
-                                    	}
+                                        if( roster_publish->active_cache_ttl ) {
+                                            o_active = os_iter_object(os_active);
+                                            os_object_get_time(os_active, o_active, "time", &active_cached->active);
+                                        }
 #endif
-                                    	userinsm = 1;
-									}
+                                        userinsm = 1;
+                                    }
                                     os_free(os_active);
                                 }
 #ifndef NO_SM_CACHE
                                 if( roster_publish->active_cache_ttl ) {
-									if (!userinsm)
-	                                    active_cached->active = 0;
+                                    if (!userinsm)
+                                        active_cached->active = 0;
                                     
-									active_cached->jid_user = strdup(jid_user(jid));
+                                    active_cached->jid_user = strdup(jid_user(jid));
                                     xhash_put(roster_publish->active_cache, active_cached->jid_user, active_cached);
                                 }
                             } // if( userinsm == -1 )
@@ -368,79 +368,79 @@ static int _roster_publish_user_load(mod_instance_t mi, user_t user) {
                                 free(item);
                                 /* nvs: is it needed? */
                             } else {
-								_roster_publish_groups(roster_publish, user, item, os, o);
+                                _roster_publish_groups(roster_publish, user, item, os, o);
                                 if (item->ngroups) {
 
                                     if(os_object_get_str(os, o, "name", &str))
                                         item->name = strdup(str);
-									
-									os_object_get_bool(os, o, "from", &item->from);
-									os_object_get_bool(os, o, "to", &item->to);
-									os_object_get_int(os, o, "ask", &item->ask);
-									
-									if (roster_publish->fixsubs)
-									{
-										/** @todo check if item hosted on our server
-										*/
-										user_t i_user;
-										item_t r_item;
-										
-										i_user = xhash_get(user->sm->users, jid_user(item->jid));
-										// Search for online user
-										if (i_user)
-										{
-											r_item = xhash_get(i_user->roster, jid_user(user->jid));
-											if (r_item)
-											{
-												item->to = item->from = 1;
-												item->ask = 0;
-												if (!r_item->from || !r_item->to || r_item->ask)
-												{
-													r_item->to = r_item->from = 1;
-													r_item->ask = 0;
-													_roster_publish_save_item(i_user, r_item);
-												}
-											}
-											else
-												item->to = item->from = 0;
-										}
-										// User not found among online. Search for offline user
-										else
-										{
-											snprintf(filter, 4096, "(jid=%s)", jid_user(user->jid));
-											
-											item->to = item->from = 0;
-											if ((storage_get(user->sm->st, "roster-items", jid_user(item->jid), filter, &os_active) == st_SUCCESS))
-											{
-												if (os_iter_first(os_active))
-												{
-													item->to = item->from = 1;
-													item->ask = 0;
-													
-													o_active = os_iter_object(os_active);
-													os_object_get_bool(os_active, o_active, "to", &tmp_to);
-													os_object_get_bool(os_active, o_active, "from", &tmp_from);
-													os_object_get_int(os_active, o_active, "ask", &tmp_ask);
-													
-													if (!tmp_to || !tmp_from || tmp_ask)
-													{
-														tmp_to = tmp_from = 1;
-														tmp_ask = 0;
-														os_object_put(o_active, "to", &tmp_to, os_type_BOOLEAN);
-														os_object_put(o_active, "from", &tmp_from, os_type_BOOLEAN);
-														os_object_put(o_active, "ask", &tmp_ask, os_type_INTEGER);
-														
-														log_debug(ZONE, "fixsubs reverse %s for %s", jid_user(item->jid), jid_user(user->jid));
-														storage_replace(user->sm->st, "roster-items", jid_user(item->jid), filter, os_active);
-													}
-												}
-                                    			os_free(os_active);
-											}
-										}
-									}
-									
+                                    
+                                    os_object_get_bool(os, o, "from", &item->from);
+                                    os_object_get_bool(os, o, "to", &item->to);
+                                    os_object_get_int(os, o, "ask", &item->ask);
+                                    
+                                    if (roster_publish->fixsubs)
+                                    {
+                                        /** @todo check if item hosted on our server
+                                        */
+                                        user_t i_user;
+                                        item_t r_item;
+                                        
+                                        i_user = xhash_get(user->sm->users, jid_user(item->jid));
+                                        // Search for online user
+                                        if (i_user)
+                                        {
+                                            r_item = xhash_get(i_user->roster, jid_user(user->jid));
+                                            if (r_item)
+                                            {
+                                                item->to = item->from = 1;
+                                                item->ask = 0;
+                                                if (!r_item->from || !r_item->to || r_item->ask)
+                                                {
+                                                    r_item->to = r_item->from = 1;
+                                                    r_item->ask = 0;
+                                                    _roster_publish_save_item(i_user, r_item);
+                                                }
+                                            }
+                                            else
+                                                item->to = item->from = 0;
+                                        }
+                                        // User not found among online. Search for offline user
+                                        else
+                                        {
+                                            snprintf(filter, 4096, "(jid=%s)", jid_user(user->jid));
+                                            
+                                            item->to = item->from = 0;
+                                            if ((storage_get(user->sm->st, "roster-items", jid_user(item->jid), filter, &os_active) == st_SUCCESS))
+                                            {
+                                                if (os_iter_first(os_active))
+                                                {
+                                                    item->to = item->from = 1;
+                                                    item->ask = 0;
+                                                    
+                                                    o_active = os_iter_object(os_active);
+                                                    os_object_get_bool(os_active, o_active, "to", &tmp_to);
+                                                    os_object_get_bool(os_active, o_active, "from", &tmp_from);
+                                                    os_object_get_int(os_active, o_active, "ask", &tmp_ask);
+                                                    
+                                                    if (!tmp_to || !tmp_from || tmp_ask)
+                                                    {
+                                                        tmp_to = tmp_from = 1;
+                                                        tmp_ask = 0;
+                                                        os_object_put(o_active, "to", &tmp_to, os_type_BOOLEAN);
+                                                        os_object_put(o_active, "from", &tmp_from, os_type_BOOLEAN);
+                                                        os_object_put(o_active, "ask", &tmp_ask, os_type_INTEGER);
+                                                        
+                                                        log_debug(ZONE, "fixsubs reverse %s for %s", jid_user(item->jid), jid_user(user->jid));
+                                                        storage_replace(user->sm->st, "roster-items", jid_user(item->jid), filter, os_active);
+                                                    }
+                                                }
+                                                os_free(os_active);
+                                            }
+                                        }
+                                    }
+                                    
                                     log_debug(ZONE, "adding %s to roster from template (to %d from %d ask %d name %s)", jid_full(item->jid), item->to, item->from, item->ask, item->name);
-									
+                                    
                                     /* its good */
                                     xhash_put(user->roster, jid_full(item->jid), (void *) item);
                                     _roster_publish_save_item(user,item);
@@ -465,7 +465,7 @@ static int _roster_publish_user_load(mod_instance_t mi, user_t user) {
                                     os_object_put_time(ofe, "time", &tfe);
                                     storage_put(mi->sm->st, "active", jid_user(jid), osfe);
                                     os_free(osfe);
-									os_free(os_active);
+                                    os_free(os_active);
                                 }
                             }
                         }
@@ -486,41 +486,41 @@ static int _roster_publish_user_load(mod_instance_t mi, user_t user) {
                             if( roster_publish->fixsubs ) {
                                 /* check subscriptions and correct if needed */
                                 snprintf(filter, 4096, "(jid=%s)", jid_user(user->jid));
-								if ((storage_get(user->sm->st, "roster-items", jid_user(item->jid), filter, &os_active) == st_SUCCESS))
-								{
-									if (os_iter_first(os_active))
-									{
-										if (!item->to || !item->from)
-										{
-											item->to = 1;
-											item->from = 1;
-											item->ask = 0;
-											log_debug(ZONE, "fixsubs in roster %s, item %s", jid_user(user->jid), jid_user(item->jid));
-											xhash_put(user->roster, jid_full(item->jid), (void *) item);
-											_roster_publish_save_item(user, item);
-										}
-										
-										o_active = os_iter_object(os_active);
-										
-										os_object_get_bool(os_active, o_active, "to", &tmp_to);
-										os_object_get_bool(os_active, o_active, "from", &tmp_from);
-										os_object_get_int(os_active, o_active, "ask", &tmp_ask);
-										
-										if (!tmp_to || !tmp_from || tmp_ask)
-										{
-											tmp_to = tmp_from = 1;
-											tmp_ask = 0;
-											os_object_put(o_active, "to", &tmp_to, os_type_BOOLEAN);
-											os_object_put(o_active, "from", &tmp_from, os_type_BOOLEAN);
-											os_object_put(o_active, "ask", &tmp_ask, os_type_INTEGER);
-        	                        		
-            	                    		log_debug(ZONE, "fixsubs reverse %s for %s", jid_user(item->jid), jid_user(user->jid));
-											snprintf(filter, 4096, "(jid=%s)", jid_user(user->jid));
-											storage_replace(user->sm->st, "roster-items", jid_user(item->jid), filter, os_active);
-										}
-									}
+                                if ((storage_get(user->sm->st, "roster-items", jid_user(item->jid), filter, &os_active) == st_SUCCESS))
+                                {
+                                    if (os_iter_first(os_active))
+                                    {
+                                        if (!item->to || !item->from)
+                                        {
+                                            item->to = 1;
+                                            item->from = 1;
+                                            item->ask = 0;
+                                            log_debug(ZONE, "fixsubs in roster %s, item %s", jid_user(user->jid), jid_user(item->jid));
+                                            xhash_put(user->roster, jid_full(item->jid), (void *) item);
+                                            _roster_publish_save_item(user, item);
+                                        }
+                                        
+                                        o_active = os_iter_object(os_active);
+                                        
+                                        os_object_get_bool(os_active, o_active, "to", &tmp_to);
+                                        os_object_get_bool(os_active, o_active, "from", &tmp_from);
+                                        os_object_get_int(os_active, o_active, "ask", &tmp_ask);
+                                        
+                                        if (!tmp_to || !tmp_from || tmp_ask)
+                                        {
+                                            tmp_to = tmp_from = 1;
+                                            tmp_ask = 0;
+                                            os_object_put(o_active, "to", &tmp_to, os_type_BOOLEAN);
+                                            os_object_put(o_active, "from", &tmp_from, os_type_BOOLEAN);
+                                            os_object_put(o_active, "ask", &tmp_ask, os_type_INTEGER);
+                                            
+                                            log_debug(ZONE, "fixsubs reverse %s for %s", jid_user(item->jid), jid_user(user->jid));
+                                            snprintf(filter, 4096, "(jid=%s)", jid_user(user->jid));
+                                            storage_replace(user->sm->st, "roster-items", jid_user(item->jid), filter, os_active);
+                                        }
+                                    }
                                     os_free(os_active);
-								}
+                                }
                             }
                             if( roster_publish->overridenames ) {
                                 /* override display name if it differs */
@@ -545,17 +545,17 @@ static int _roster_publish_user_load(mod_instance_t mi, user_t user) {
                                     }
                                 }
                             }
-							if (roster_publish->overridegroups)
-							{
-								log_debug(ZONE, "overriding groups for '%s'", jid_full(item->jid));
-								for(i = 0; i < item->ngroups; i++)
-									free((void*)item->groups[i]);
-								free(item->groups);
-								item->groups = NULL;
-								item->ngroups = 0;
-								
-								_roster_publish_groups(roster_publish, user, item, os, o);
-							}
+                            if (roster_publish->overridegroups)
+                            {
+                                log_debug(ZONE, "overriding groups for '%s'", jid_full(item->jid));
+                                for(i = 0; i < item->ngroups; i++)
+                                    free((void*)item->groups[i]);
+                                free(item->groups);
+                                item->groups = NULL;
+                                item->ngroups = 0;
+                                
+                                _roster_publish_groups(roster_publish, user, item, os, o);
+                            }
                             else if( roster_publish->forcegroups ) {
                                 /* item already in roster, check groups if needed */
                                 os_object_get_str(os, o, "group", &str);
